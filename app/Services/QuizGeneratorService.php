@@ -10,16 +10,17 @@ use Throwable;
 
 class QuizGeneratorService
 {
-    public function __construct(private readonly OllamaService $ollama) {}
+    public function __construct(private readonly OpenAIService $openai) {}
 
     /**
      * @return array{mcqs: array<int, array<string, mixed>>, identification: array<int, array<string, mixed>>, confidence: float}
      */
     public function generate(string $documentText): array
     {
-        $attempts = (int) config('services.ollama.quiz_json_retries', 3);
-        $numPredict = (int) config('services.ollama.quiz_num_predict', 2500);
-        $cacheKey = $this->cacheKey($documentText, $numPredict);
+        $attempts = (int) config('services.openai.quiz_json_retries', 3);
+        $numPredict = (int) config('services.openai.quiz_max_tokens', 2500);
+        $model = (string) config('services.openai.models.quiz', 'gpt-4o-mini');
+        $cacheKey = $this->cacheKey($documentText, $numPredict, $model);
         $prompt = $this->buildPrompt($documentText);
         $lastError = 'Unknown AI generation error.';
         $lastResponse = '';
@@ -36,13 +37,14 @@ class QuizGeneratorService
 
         for ($attempt = 1; $attempt <= $attempts; $attempt++) {
             try {
-                $lastResponse = $this->ollama->generate(
+                $lastResponse = $this->openai->generate(
                     $prompt,
                     [
                         'temperature' => 0.1,
-                        'num_predict' => $numPredict,
+                        'max_tokens' => $numPredict,
+                        'schema_name' => 'quiz',
                     ],
-                    null,
+                    $model,
                     false,
                     $this->quizSchema()
                 );
@@ -73,16 +75,14 @@ class QuizGeneratorService
      * and the exact document text so re-uploading the same material skips
      * the multi-second LLM call entirely.
      */
-    private function cacheKey(string $documentText, int $numPredict): string
+    private function cacheKey(string $documentText, int $numPredict, string $model): string
     {
-        $model = (string) config('services.ollama.model', 'llama3');
-
         return 'quiz_gen:'.hash('sha256', $model.'|0.1|'.$numPredict.'|'.$documentText);
     }
 
     private function cacheQuiz(string $cacheKey, array $quiz): void
     {
-        $ttl = (int) config('services.ollama.cache_ttl', 604800);
+        $ttl = (int) config('services.openai.cache_ttl', 604800);
 
         if ($ttl <= 0) {
             return;
@@ -92,7 +92,7 @@ class QuizGeneratorService
     }
 
     /**
-     * JSON schema for Ollama structured outputs. Enforces exact counts
+     * JSON schema for OpenAI structured outputs. Enforces exact counts
      * (10 MCQs, 5 identification items), 4 choices per MCQ, and the
      * difficulty enum at decode time so malformed responses are nearly
      * impossible and validation retries almost never trigger.

@@ -4,7 +4,7 @@ use App\Models\Answer;
 use App\Models\AssessmentResult;
 use App\Models\Question;
 use App\Models\User;
-use App\Services\OllamaService;
+use App\Services\OpenAIService;
 
 use function Pest\Laravel\actingAs;
 
@@ -55,7 +55,7 @@ it('submits the assessment and persists a structured recommendation result', fun
         ['question_text' => 'I am detail-oriented.', 'category' => 'personality'],
     ])->map(fn (array $data) => Question::query()->create($data));
 
-    $this->app->instance(OllamaService::class, new class extends OllamaService
+    $this->app->instance(OpenAIService::class, new class extends OpenAIService
     {
         public function analyze($answers): array
         {
@@ -73,7 +73,7 @@ it('submits the assessment and persists a structured recommendation result', fun
                 'evidence' => ['Technology interest - Strongly agree'],
                 'next_steps' => ['Review BSIT curriculum'],
                 'alternative_programs' => [],
-                'source' => 'ollama',
+                'source' => 'openai',
             ];
         }
     });
@@ -95,7 +95,7 @@ it('submits the assessment and persists a structured recommendation result', fun
 
     expect($result)->not->toBeNull()
         ->and($result->program_code)->toBe('BSIT')
-        ->and($result->source)->toBe('ollama')
+        ->and($result->source)->toBe('openai')
         ->and((float) $result->confidence)->toBe(91.0)
         ->and($result->strongest_trait)->toBeString()
         ->and($result->result['recommended_program']['code'] ?? null)->toBe('BSIT')
@@ -119,14 +119,14 @@ it('inverts answers for negatively-worded questions using the reverse flag', fun
         'is_reverse' => true,
     ]);
 
-    $this->app->instance(OllamaService::class, new class extends OllamaService
+    $this->app->instance(OpenAIService::class, new class extends OpenAIService
     {
         public function analyze($answers): array
         {
             return [
                 'recommended_program' => ['code' => 'BSIT', 'name' => 'Bachelor of Science in Information Technology'],
                 'confidence' => 80,
-                'source' => 'ollama',
+                'source' => 'openai',
             ];
         }
     });
@@ -155,7 +155,7 @@ it('keeps a retake history of assessment recommendations', function () {
         'category' => 'interest',
     ]);
 
-    $this->app->instance(OllamaService::class, new class extends OllamaService
+    $this->app->instance(OpenAIService::class, new class extends OpenAIService
     {
         public function analyze($answers): array
         {
@@ -169,7 +169,7 @@ it('keeps a retake history of assessment recommendations', function () {
                     'name' => $run === 1 ? 'Bachelor of Science in Computer Science' : 'Bachelor of Science in Information Technology',
                 ],
                 'confidence' => $run === 1 ? 74 : 88,
-                'source' => 'ollama',
+                'source' => 'openai',
             ];
         }
     });
@@ -203,14 +203,14 @@ it('flags straight-lined response patterns on the results page', function () {
         ['question_text' => 'I am detail-oriented.', 'category' => 'personality'],
     ])->map(fn (array $data) => Question::query()->create($data));
 
-    $this->app->instance(OllamaService::class, new class extends OllamaService
+    $this->app->instance(OpenAIService::class, new class extends OpenAIService
     {
         public function analyze($answers): array
         {
             return [
                 'recommended_program' => ['code' => 'BSIT', 'name' => 'Bachelor of Science in Information Technology'],
                 'confidence' => 70,
-                'source' => 'ollama',
+                'source' => 'openai',
             ];
         }
     });
@@ -245,7 +245,7 @@ it('restricts assessment analytics to administrators', function () {
         'program_code' => 'BSIT',
         'program_name' => 'Bachelor of Science in Information Technology',
         'confidence' => 85.5,
-        'source' => 'ollama',
+        'source' => 'openai',
         'completed_at' => now(),
     ]);
 

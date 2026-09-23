@@ -2,105 +2,140 @@
 
 namespace App\Services;
 
+use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use JsonException;
 use RuntimeException;
 use Throwable;
 
-class OllamaService
+class OpenAIService
 {
     /**
-     * @param  array<string, mixed>|null  $schema  Optional JSON schema for
-     *                                             Ollama structured outputs.
+     * @param  array<string, mixed>|null  $schema  Optional JSON Schema granted
+     *                                             to OpenAI structured outputs.
      *                                             Constrains decoding so the
      *                                             model cannot emit invalid
      *                                             JSON (removes retry loops).
      */
     public function generate(string $prompt, array $options = [], ?string $model = null, bool $jsonMode = false, ?array $schema = null): string
     {
-        $baseUrl = rtrim((string) config('services.ollama.base_url', 'http://localhost:11434'), '/');
-        $timeout = (int) config('services.ollama.timeout', 90);
-        $retries = (int) config('services.ollama.retries', 2);
-        $model ??= (string) config('services.ollama.model', 'llama3');
+        $baseUrl = rtrim((string) config('services.openai.base_url', 'https://api.openai.com/v1'), '/');
+        $timeout = (int) config('services.openai.timeout', 30);
+        $retries = (int) config('services.openai.retries', 2);
+        $apiKey = (string) config('services.openai.key', '');
+        $model ??= (string) config('services.openai.models.default', 'gpt-4o-mini');
 
         $payload = [
             'model' => $model,
-            'prompt' => $prompt,
-            'stream' => false,
-
-            // Keeps the model resident between requests so idle periods do
-            // not trigger a full model reload on the next generation.
-            'keep_alive' => (string) config('services.ollama.keep_alive', '30m'),
-
-            'options' => array_replace($this->defaultOptions(), $options),
+            'messages' => [
+                ['role' => 'user', 'content' => $prompt],
+            ],
+            'temperature' => (float) ($options['temperature'] ?? config('services.openai.temperature', 0.2)),
         ];
 
+        $maxTokens = $options['max_tokens'] ?? $options['num_predict'] ?? null;
+
+        if ($maxTokens !== null) {
+            $payload['max_tokens'] = (int) $maxTokens;
+        }
+
         if ($schema !== null) {
-            $payload['format'] = $schema;
+            $payload['response_format'] = [
+                'type' => 'json_schema',
+                'json_schema' => [
+                    'name' => $options['schema_name'] ?? 'structured_response',
+                    'strict' => false,
+                    'schema' => $this->normalizeSchema($schema),
+                ],
+            ];
         } elseif ($jsonMode) {
-            $payload['format'] = 'json';
+            $payload['response_format'] = ['type' => 'json_object'];
         }
 
         try {
-            $request = Http::timeout($timeout);
+            $request = Http::withToken($apiKey)
+                ->acceptJson()
+                ->timeout($timeout);
 
-            if ($retries > 0) {
-                $request = $request->retry($retries, 1000);
+            $organization = config('services.openai.organization');
+
+            if ($organization) {
+                $request->withHeaders(['OpenAI-Organization' => $organization]);
             }
 
-            $response = $request->post($baseUrl.'/api/generate', $payload);
+            if ($retries > 0) {
+                $request = $request->retry($retries, 1000, function ($exception): bool {
+                    if ($exception instanceof ConnectionException) {
+                        return true;
+                    }
+
+                    return $exception instanceof RequestException
+                        && in_array($exception->response->status(), [408, 429], true)
+                        || ($exception->response->status() ?? 0) >= 500;
+                });
+            }
+
+            $response = $request->post($baseUrl.'/chat/completions', $payload);
 
             if ($response->failed()) {
-                Log::warning('Ollama returned an unsuccessful response.', [
+                Log::warning('OpenAI returned an unsuccessful response.', [
                     'status' => $response->status(),
                     'body' => $response->body(),
                 ]);
 
-                throw new RuntimeException('Ollama returned HTTP '.$response->status().'.');
+                throw new RuntimeException('OpenAI returned HTTP '.$response->status().'.');
             }
 
-            $data = $response->json();
-            $answer = trim((string) ($data['response'] ?? ''));
+            $content = $response->json('choices.0.message.content');
+            $answer = trim((string) ($content ?? ''));
 
             if ($answer === '') {
-                throw new RuntimeException('Ollama returned an empty response.');
+                throw new RuntimeException('OpenAI returned an empty response.');
             }
 
             return $answer;
         } catch (Throwable $exception) {
-            Log::error('Ollama request failed.', [
+            Log::error('OpenAI request failed.', [
                 'model' => $model,
                 'message' => $exception->getMessage(),
             ]);
 
-            throw new RuntimeException('Ollama request failed: '.$exception->getMessage(), previous: $exception);
+            throw new RuntimeException('OpenAI request failed: '.$exception->getMessage(), previous: $exception);
         }
     }
 
     /**
-     * Base decoding options shared by every request. num_thread / num_gpu
-     * are only sent when explicitly configured so default Ollama behavior
-     * is untouched; callers may always override via $options.
+     * OpenAI structured outputs reject schema keywords it does not support
+     * (minItems / maxItems). Those constraints are already enforced by the
+     * callers' validate() layers, so the keys are stripped recursively
+     * before the schema is sent to the API.
      *
+     * @param  array<string, mixed>  $schema
      * @return array<string, mixed>
      */
-    private function defaultOptions(): array
+    private function normalizeSchema(array $schema): array
     {
-        $options = [
-            'temperature' => (float) config('services.ollama.temperature', 0.2),
-            'num_ctx' => (int) config('services.ollama.num_ctx', 8192),
-        ];
+        $schema = array_diff_key($schema, ['minItems' => true, 'maxItems' => true]);
 
-        foreach (['num_thread' => 'services.ollama.num_thread', 'num_gpu' => 'services.ollama.num_gpu'] as $option => $key) {
-            $value = config($key);
+        foreach ($schema as $key => $value) {
+            if ($key === 'properties' && is_array($value)) {
+                foreach ($value as $property => $definition) {
+                    if (is_array($definition)) {
+                        $schema[$key][$property] = $this->normalizeSchema($definition);
+                    }
+                }
 
-            if (is_numeric($value) && (int) $value > 0) {
-                $options[$option] = (int) $value;
+                continue;
+            }
+
+            if (in_array($key, ['items', 'additionalProperties'], true) && is_array($value)) {
+                $schema[$key] = $this->normalizeSchema($value);
             }
         }
 
-        return $options;
+        return $schema;
     }
 
     /**
@@ -164,9 +199,10 @@ PROMPT;
                 $prompt,
                 [
                     'temperature' => 0.15,
-                    'num_predict' => 1200,
+                    'max_tokens' => (int) config('services.openai.assessment_max_tokens', 1200),
+                    'schema_name' => 'recommendation',
                 ],
-                null,
+                (string) config('services.openai.models.assessment', 'gpt-4o-mini'),
                 false,
                 $this->recommendationSchema()
             );
@@ -176,17 +212,18 @@ PROMPT;
                 $answerRows
             );
         } catch (Throwable $exception) {
-            // Structured outputs can fail on very old Ollama builds that do
-            // not understand schema formats. Retry once in plain JSON mode
-            // before giving up and using the deterministic recommender.
+            // Structured outputs can fail on providers or models that do not
+            // understand json_schema response formats. Retry once in plain
+            // JSON mode before giving up and using the deterministic
+            // recommender.
             try {
                 $response = $this->generate(
                     $prompt,
                     [
                         'temperature' => 0.15,
-                        'num_predict' => 1200,
+                        'max_tokens' => (int) config('services.openai.assessment_max_tokens', 1200),
                     ],
-                    null,
+                    (string) config('services.openai.models.assessment', 'gpt-4o-mini'),
                     true
                 );
 
@@ -205,7 +242,7 @@ PROMPT;
     }
 
     /**
-     * JSON schema constraining Ollama structured outputs for assessment
+     * JSON schema constraining OpenAI structured outputs for assessment
      * recommendations. Required fields are kept minimal so generation never
      * fails hard; normalizeRecommendation() fills every remaining default.
      *
@@ -420,7 +457,7 @@ PROMPT;
 
             'disclaimer' => 'This assessment provides guidance-based academic recommendations and should be used together with adviser consultation, student interests, and academic performance.',
 
-            'source' => 'ollama',
+            'source' => 'openai',
         ];
     }
 

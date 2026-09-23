@@ -4,8 +4,12 @@ AI-assisted academic guidance platform for incoming college students, built with
 
 Students take a Likert-scale career assessment and receive an AI-generated program
 recommendation (with confidence level, strongest trait, evidence, and alternatives), and can
-upload learning materials (PDF/DOCX/TXT) that a local LLM turns into practice quizzes with
+upload learning materials (PDF/DOCX/TXT) that the OpenAI API turns into practice quizzes with
 automatic grading and analytics.
+
+The AI layer uses per-task models — a fast, low-cost model for answer grading and stronger
+models for assessment recommendations and quiz generation — with constrained JSON outputs
+(`json_schema` structured outputs) so the app receives valid, parseable data every time.
 
 > **Guidance, not verdicts.** All recommendations are explicitly advisory and must be combined
 > with adviser consultation, grades, and personal interest. The system states this disclaimer on
@@ -16,7 +20,7 @@ automatic grading and analytics.
 ### 1. Program Recommendation Assessment
 - 26-item Likert instrument across 6 categories (skills, interests, personality, work style,
   career values, technical aptitude), including reverse-scored negatively-worded items
-- Local **Ollama** LLM (`llama3` by default) produces structured JSON recommendations:
+- **OpenAI** API (`gpt-4o-mini` by default) produces structured JSON recommendations:
   program, confidence, fit level, strengths, development areas, evidence, next steps, and
   alternative programs
 - Deterministic trait-weighted fallback scorer when the AI service is unavailable — the app
@@ -31,7 +35,7 @@ automatic grading and analytics.
 ### 2. AI Quiz Generator
 - Upload PDF / DOCX / TXT learning material (max 10 MB); files are stored in private storage and
   served only to their owner
-- Queued job extracts text (`smalot/pdfparser`, `phpoffice/phpword`), prompts Ollama for exactly
+- Queued job extracts text (`smalot/pdfparser`, `phpoffice/phpword`), prompts OpenAI for exactly
   10 MCQs + 5 identification questions in strict JSON with anti-hallucination rules, validates
   and repairs model output transactionally
 - Students take quizzes; MCQs are graded deterministically, identification answers semantically
@@ -47,7 +51,7 @@ confidence, program distribution, live-AI vs fallback share, and flagged respons
 ```
 Browser ── Tailwind/Alpine UI (Breeze)
    │
-   ├─ AssessmentController ──► OllamaService ──► Ollama HTTP API (localhost:11434)
+   ├─ AssessmentController ──► OpenAIService ──► OpenAI API
    │        │                        └─ deterministic fallback scorer
    │        └─► assessment_results (persisted history + validity flags)
    │
@@ -62,7 +66,7 @@ Key source paths:
 | Area | Path |
 |---|---|
 | Controllers | `app/Http/Controllers` |
-| Services | `app/Services/OllamaService.php`, `QuizGeneratorService.php`, `TextExtractionService.php`, `AnswerEvaluationService.php` |
+| Services | `app/Services/OpenAIService.php`, `QuizGeneratorService.php`, `TextExtractionService.php`, `AnswerEvaluationService.php` |
 | Queue job | `app/Jobs/GenerateQuizFromMaterial.php` |
 | Migrations | `database/migrations` |
 | Methodology docs | `docs/assessment-methodology.md`, `docs/ai-quiz-generator-prompt-engineering.md` |
@@ -72,14 +76,13 @@ Key source paths:
 - PHP >= 8.2, Composer
 - Node.js >= 20, npm
 - MySQL
-- [Ollama](https://ollama.com) running locally with the configured model pulled
-  (default `llama3`: `ollama pull llama3`)
+- OpenAI API key ([platform.openai.com/api-keys](https://platform.openai.com/api-keys))
 
 ## Setup
 
 ```bash
 composer install
-cp .env.example .env          # then edit DB credentials if needed
+cp .env.example .env          # edit DB credentials and add OPENAI_API_KEY
 php artisan key:generate
 php artisan migrate --seed    # seeds 26 assessment questions + demo accounts
 npm install && npm run build
@@ -103,8 +106,16 @@ The quiz generator requires the queue worker; the assessment runs synchronously.
 
 ### Configuration
 
-All AI settings live under the `OLLAMA_*` keys in `.env` (see `.env.example`):
-base URL, model name, timeout, retries, temperature, document char limit, and JSON retry counts.
+All AI settings live under the `OPENAI_*` keys in `.env` (see `.env.example`):
+
+- `OPENAI_API_KEY` — required API key
+- `OPENAI_ORGANIZATION`, `OPENAI_BASE_URL` — optional org / OpenAI-compatible gateway override
+- `OPENAI_MODEL_DEFAULT`, `OPENAI_MODEL_ASSESSMENT`, `OPENAI_MODEL_QUIZ`,
+  `OPENAI_MODEL_ANSWER` — per-task models (grading uses the fast default `gpt-4o-mini`)
+- `OPENAI_TIMEOUT`, `OPENAI_RETRIES`, `OPENAI_TEMPERATURE` — request behavior
+- `OPENAI_ASSESSMENT_MAX_TOKENS`, `OPENAI_QUIZ_MAX_TOKENS` — completion budgets per task
+- `OPENAI_QUIZ_CACHE_TTL` — seconds to reuse a validated quiz for identical material
+- `OPENAI_MAX_DOCUMENT_CHARS` — character limit of extracted text sent to the model
 
 ## Testing
 
@@ -115,5 +126,5 @@ vendor/bin/pint   # code style
 
 Coverage includes the full assessment flow (consent gating, reverse scoring, persistence,
 retake history, validity flags), admin authorization, quiz upload/download authorization,
-attempt grading, auth scaffolding, and `OllamaService` normalization/fallback behavior via
+attempt grading, auth scaffolding, and `OpenAIService` normalization/fallback behavior via
 HTTP fakes.

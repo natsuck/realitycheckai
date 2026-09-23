@@ -5,7 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Answer;
 use App\Models\AssessmentResult;
 use App\Models\Question;
-use App\Services\OllamaService;
+use App\Services\OpenAIService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
@@ -80,7 +80,7 @@ class AssessmentController extends Controller
             ->with('status', 'Thank you. Your consent has been recorded and you may now take the assessment.');
     }
 
-    public function submit(Request $request, OllamaService $ollama)
+    public function submit(Request $request, OpenAIService $openai)
     {
         if (! Auth::user()?->privacy_consented_at) {
             return redirect()
@@ -153,7 +153,7 @@ class AssessmentController extends Controller
             JSON_PRETTY_PRINT
         );
 
-        $aiFeedback = $ollama->analyze($answerJson);
+        $aiFeedback = $openai->analyze($answerJson);
 
         $summary = $this->summarizeAssessment(
             collect($answersArray)
@@ -173,7 +173,7 @@ class AssessmentController extends Controller
             'program_name' => $aiFeedback['recommended_program']['name'] ?? 'No recommendation',
             'confidence' => (float) ($aiFeedback['confidence'] ?? 0),
             'fit_level' => $aiFeedback['fit_level'] ?? null,
-            'source' => $aiFeedback['source'] ?? 'ollama',
+            'source' => $aiFeedback['source'] ?? 'openai',
             'strongest_trait' => $strongestTrait['trait'] ?? null,
             'strongest_trait_percentage' => (float) ($strongestTrait['percentage'] ?? 0),
             'response_flags' => $responseFlags ?: null,
@@ -202,7 +202,7 @@ class AssessmentController extends Controller
         return redirect()->route('results.index');
     }
 
-    public function results(Request $request, OllamaService $ollama)
+    public function results(Request $request, OpenAIService $openai)
     {
         $answers = Answer::query()
             ->with('question')
@@ -301,7 +301,7 @@ class AssessmentController extends Controller
 
         $responseFlags = $latestResult?->response_flags ?? [];
 
-        $programMatches = $this->programMatches($ollama, $answers, $aiFeedback);
+        $programMatches = $this->programMatches($openai, $answers, $aiFeedback);
 
         $aptitude = $this->aptitudeScore($summary ?? [], $latestResult?->strongest_trait);
 
@@ -333,7 +333,7 @@ class AssessmentController extends Controller
      * @param  array<string, mixed>  $aiFeedback
      * @return array<int, array<string, mixed>>
      */
-    private function programMatches(OllamaService $ollama, Collection $answers, array $aiFeedback): array
+    private function programMatches(OpenAIService $openai, Collection $answers, array $aiFeedback): array
     {
         $rows = $answers
             ->map(fn (Answer $answer): array => [
@@ -349,7 +349,7 @@ class AssessmentController extends Controller
             return [];
         }
 
-        $matches = $ollama->programMatches($rows);
+        $matches = $openai->programMatches($rows);
 
         $recommendedCode = strtoupper(
             (string) ($aiFeedback['recommended_program']['code'] ?? '')

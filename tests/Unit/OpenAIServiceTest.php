@@ -1,6 +1,6 @@
 <?php
 
-use App\Services\OllamaService;
+use App\Services\OpenAIService;
 use Illuminate\Support\Facades\Http;
 
 function assessmentRow(string $question, string $category, int $answer): array
@@ -14,37 +14,41 @@ function assessmentRow(string $question, string $category, int $answer): array
     ];
 }
 
-function fakeOllamaResponse(array|string $body): void
+function fakeOpenAIResponse(array|string $body): void
 {
+    $content = is_array($body) ? $body : $body;
+
     Http::fake([
-        'http://localhost:11434/*' => Http::response($body),
+        'https://api.openai.com/*' => Http::response([
+            'choices' => [
+                ['message' => ['content' => $content]],
+            ],
+        ]),
     ]);
 }
 
 it('normalizes a valid structured ai recommendation', function () {
-    fakeOllamaResponse([
-        'response' => json_encode([
-            'recommended_program' => [
-                'code' => 'bsit',
-                'name' => 'Whatever the model said',
-            ],
-            'confidence' => '91',
-            'fit_level' => 'Strong Fit',
-            'reason' => 'Technical alignment.',
-            'strengths' => ['Logic', 'Technology'],
-            'alternative_programs' => [
-                ['code' => 'BSCS', 'name' => 'CS', 'reason' => 'Related.'],
-                ['code' => 'NOPE', 'name' => 'Invalid', 'reason' => 'Bad code.'],
-            ],
-        ]),
-    ]);
+    fakeOpenAIResponse(json_encode([
+        'recommended_program' => [
+            'code' => 'bsit',
+            'name' => 'Whatever the model said',
+        ],
+        'confidence' => '91',
+        'fit_level' => 'Strong Fit',
+        'reason' => 'Technical alignment.',
+        'strengths' => ['Logic', 'Technology'],
+        'alternative_programs' => [
+            ['code' => 'BSCS', 'name' => 'CS', 'reason' => 'Related.'],
+            ['code' => 'NOPE', 'name' => 'Invalid', 'reason' => 'Bad code.'],
+        ],
+    ]));
 
-    $result = (new OllamaService)->analyze([
+    $result = (new OpenAIService)->analyze([
         assessmentRow('I enjoy solving logical problems.', 'skills', 5),
         assessmentRow('I am interested in computer technology.', 'technical', 5),
     ]);
 
-    expect($result['source'])->toBe('ollama')
+    expect($result['source'])->toBe('openai')
         ->and($result['recommended_program']['code'])->toBe('BSIT')
         ->and($result['recommended_program']['name'])
         ->toBe('Bachelor of Science in Information Technology')
@@ -54,14 +58,12 @@ it('normalizes a valid structured ai recommendation', function () {
 });
 
 it('clamps out-of-range confidence values', function () {
-    fakeOllamaResponse([
-        'response' => json_encode([
-            'recommended_program' => ['code' => 'BSCS', 'name' => 'CS'],
-            'confidence' => 150,
-        ]),
-    ]);
+    fakeOpenAIResponse(json_encode([
+        'recommended_program' => ['code' => 'BSCS', 'name' => 'CS'],
+        'confidence' => 150,
+    ]));
 
-    $result = (new OllamaService)->analyze([
+    $result = (new OpenAIService)->analyze([
         assessmentRow('I enjoy solving logical problems.', 'skills', 5),
     ]);
 
@@ -69,14 +71,12 @@ it('clamps out-of-range confidence values', function () {
 });
 
 it('replaces an unknown program code with a deterministic trait match', function () {
-    fakeOllamaResponse([
-        'response' => json_encode([
-            'recommended_program' => ['code' => 'BSPHILO', 'name' => 'Not offered'],
-            'confidence' => 80,
-        ]),
-    ]);
+    fakeOpenAIResponse(json_encode([
+        'recommended_program' => ['code' => 'BSPHILO', 'name' => 'Not offered'],
+        'confidence' => 80,
+    ]));
 
-    $result = (new OllamaService)->analyze([
+    $result = (new OpenAIService)->analyze([
         assessmentRow('I enjoy solving logical problems.', 'skills', 5),
         assessmentRow('I am interested in computer technology.', 'technical', 5),
     ]);
@@ -85,11 +85,9 @@ it('replaces an unknown program code with a deterministic trait match', function
 });
 
 it('produces a marked fallback when the ai output is not json', function () {
-    fakeOllamaResponse([
-        'response' => 'Sure! Here is your recommendation, dear student.',
-    ]);
+    fakeOpenAIResponse('Sure! Here is your recommendation, dear student.');
 
-    $result = (new OllamaService)->analyze([
+    $result = (new OpenAIService)->analyze([
         assessmentRow('I enjoy helping people.', 'interest', 5),
         assessmentRow('I am interested in business management.', 'interest', 5),
     ]);
@@ -100,12 +98,12 @@ it('produces a marked fallback when the ai output is not json', function () {
         ->and($result['disclaimer'])->toContain('guidance');
 });
 
-it('produces a marked fallback when the ollama service fails', function () {
+it('produces a marked fallback when the openai service fails', function () {
     Http::fake([
-        'http://localhost:11434/*' => Http::response('server exploded', 500),
+        'https://api.openai.com/*' => Http::response('server exploded', 500),
     ]);
 
-    $result = (new OllamaService)->analyze([
+    $result = (new OpenAIService)->analyze([
         assessmentRow('I enjoy solving logical problems.', 'skills', 5),
     ]);
 
@@ -114,7 +112,7 @@ it('produces a marked fallback when the ollama service fails', function () {
 });
 
 it('maps technical-heavy patterns to computing programs and social-heavy to service programs', function () {
-    $service = new OllamaService;
+    $service = new OpenAIService;
 
     $method = new ReflectionMethod($service, 'fallbackProgramCode');
 
@@ -135,7 +133,7 @@ it('maps technical-heavy patterns to computing programs and social-heavy to serv
 });
 
 it('still weighs reworded questions through category-level defaults', function () {
-    $service = new OllamaService;
+    $service = new OpenAIService;
 
     $method = new ReflectionMethod($service, 'fallbackProgramCode');
 

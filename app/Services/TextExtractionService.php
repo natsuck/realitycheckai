@@ -40,7 +40,7 @@ class TextExtractionService
     private function extractPdf(string $fullPath): string
     {
         try {
-            $config = new Config();
+            $config = new Config;
             $config->setIgnoreEncryption(true);
 
             return (new Parser([], $config))->parseFile($fullPath)->getText();
@@ -173,7 +173,7 @@ class TextExtractionService
 
     private function limitForPrompt(string $text): string
     {
-        $limit = (int) config('services.ollama.max_document_chars', 12000);
+        $limit = (int) config('services.openai.max_document_chars', 12000);
 
         if (mb_strlen($text) <= $limit) {
             return $text;

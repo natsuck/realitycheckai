@@ -30,8 +30,9 @@ class AdminAnalyticsController extends Controller
             ->groupBy('source')
             ->pluck('total', 'source');
 
-        $aiGeneratedCount = (int) ($sourceCounts['ollama'] ?? 0);
-        $fallbackCount = (int) ($sourceCounts['fallback'] ?? $sourceCounts->except('ollama')->sum());
+        $aiGeneratedCount = (int) ($sourceCounts['openai'] ?? 0)
+            + (int) ($sourceCounts['ollama'] ?? 0);
+        $fallbackCount = (int) ($sourceCounts['fallback'] ?? 0);
 
         $aiAvailabilityRate = $totalAssessments > 0
             ? round(($aiGeneratedCount / $totalAssessments) * 100, 1)

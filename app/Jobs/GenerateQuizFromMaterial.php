@@ -37,7 +37,7 @@ class GenerateQuizFromMaterial implements ShouldQueue
         $quiz->update([
             'status' => Quiz::STATUS_PROCESSING,
             'generation_error' => null,
-            'ai_model' => config('services.ollama.model', 'llama3'),
+            'ai_model' => config('services.openai.models.quiz', 'gpt-4o-mini'),
         ]);
 
         $extractedText = $extractor->extract($quiz->source_file);

@@ -50,7 +50,7 @@
                         <x-icon name="file-text" class="w-5 h-5"/>
                     </div>
                     <h3 class="mt-5 font-headline font-bold text-base text-primary">AI Quiz Generator</h3>
-                    <p class="mt-2 text-xs leading-relaxed text-ink-muted">Upload PDF, DOCX, or TXT learning materials and generate MCQ plus identification quizzes through Ollama.</p>
+                    <p class="mt-2 text-xs leading-relaxed text-ink-muted">Upload PDF, DOCX, or TXT learning materials and generate MCQ plus identification quizzes with OpenAI.</p>
                 </a>
 
                 <a href="{{ route('results.index') }}" class="card p-6 group hover:border-primary transition-all hover:-translate-y-0.5 hover:shadow-ambient-lg">

@@ -9,7 +9,7 @@ use Throwable;
 
 class AnswerEvaluationService
 {
-    public function __construct(private readonly OllamaService $ollama) {}
+    public function __construct(private readonly OpenAIService $openai) {}
 
     /**
      * @return array{is_correct: bool, confidence: float, explanation: string}
@@ -27,18 +27,19 @@ class AnswerEvaluationService
         }
 
         $prompt = $this->buildPrompt($question, $correctAnswer, $studentAnswer);
-        $attempts = (int) config('services.ollama.answer_json_retries', 2);
+        $attempts = (int) config('services.openai.answer_json_retries', 2);
         $lastError = '';
 
         for ($attempt = 1; $attempt <= $attempts; $attempt++) {
             try {
-                $response = $this->ollama->generate(
+                $response = $this->openai->generate(
                     $prompt,
                     [
                         'temperature' => 0.0,
-                        'num_predict' => 300,
+                        'max_tokens' => 300,
+                        'schema_name' => 'answer_evaluation',
                     ],
-                    null,
+                    (string) config('services.openai.models.answer', 'gpt-4o-mini'),
                     false,
                     $this->evaluationSchema()
                 );
@@ -70,7 +71,7 @@ class AnswerEvaluationService
      * reach the model, so a typical submission costs zero or one AI call.
      *
      * @param  array<int, array{key: int|string, question: string, correct_answer: string, student_answer: ?string}>  $items
-     * @return array<int|string, array{is_correct: bool, confidence: float, explanation: string}>  keyed by item key
+     * @return array<int|string, array{is_correct: bool, confidence: float, explanation: string}> keyed by item key
      */
     public function evaluateBatch(array $items): array
     {
@@ -117,22 +118,23 @@ class AnswerEvaluationService
 
     /**
      * @param  array<int, array{question: string, correct_answer: string, student_answer: string}>  $pending
-     * @return array<int, array{is_correct: bool, confidence: float, explanation: string}>  aligned with $pending indexes
+     * @return array<int, array{is_correct: bool, confidence: float, explanation: string}> aligned with $pending indexes
      */
     private function evaluatePendingWithAi(array $pending): array
     {
         $prompt = $this->buildBatchPrompt($pending);
-        $attempts = (int) config('services.ollama.answer_json_retries', 2);
+        $attempts = (int) config('services.openai.answer_json_retries', 2);
 
         for ($attempt = 1; $attempt <= $attempts; $attempt++) {
             try {
-                $response = $this->ollama->generate(
+                $response = $this->openai->generate(
                     $prompt,
                     [
                         'temperature' => 0.0,
-                        'num_predict' => 600,
+                        'max_tokens' => 600,
+                        'schema_name' => 'answer_batch_evaluation',
                     ],
-                    null,
+                    (string) config('services.openai.models.answer', 'gpt-4o-mini'),
                     false,
                     $this->batchSchema()
                 );
@@ -232,7 +234,7 @@ PROMPT;
     }
 
     /**
-     * JSON schema for Ollama structured outputs on single evaluations.
+     * JSON schema for OpenAI structured outputs on single evaluations.
      *
      * @return array<string, mixed>
      */
@@ -250,7 +252,7 @@ PROMPT;
     }
 
     /**
-     * JSON schema for Ollama structured outputs on batch evaluations.
+     * JSON schema for OpenAI structured outputs on batch evaluations.
      *
      * @return array<string, mixed>
      */

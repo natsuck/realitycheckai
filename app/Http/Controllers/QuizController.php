@@ -56,7 +56,7 @@ class QuizController extends Controller
             'source_file' => $path,
             'original_filename' => $file->getClientOriginalName(),
             'status' => Quiz::STATUS_QUEUED,
-            'ai_model' => config('services.ollama.model', 'llama3'),
+            'ai_model' => config('services.openai.models.quiz', 'gpt-4o-mini'),
         ]);
 
         GenerateQuizFromMaterial::dispatch($quiz->id);
