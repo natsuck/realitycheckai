@@ -144,6 +144,67 @@ it('inverts answers for negatively-worded questions using the reverse flag', fun
         ->and($answers[$negative->id])->toBe(4);
 });
 
+it('allows submitting the assessment with some questions unanswered', function () {
+    $user = User::factory()->consented()->create([
+        'email_verified_at' => now(),
+        'user_type' => 'user',
+    ]);
+
+    $questions = collect([
+        ['question_text' => 'I enjoy solving logical problems.', 'category' => 'skills'],
+        ['question_text' => 'I am interested in technology.', 'category' => 'interest'],
+        ['question_text' => 'I am detail-oriented.', 'category' => 'personality'],
+    ])->map(fn (array $data) => Question::query()->create($data));
+
+    $this->app->instance(OpenAIService::class, new class extends OpenAIService
+    {
+        public function analyze($answers): array
+        {
+            return [
+                'recommended_program' => ['code' => 'BSIT', 'name' => 'Bachelor of Science in Information Technology'],
+                'confidence' => 80,
+                'source' => 'openai',
+            ];
+        }
+    });
+
+    $answered = $questions
+        ->take(2)
+        ->mapWithKeys(fn (Question $question) => ['question_'.$question->id => 5])
+        ->all();
+
+    $response = $this->actingAs($user)->post(route('assessment.submit'), $answered);
+
+    $response->assertRedirect(route('results.index'));
+
+    expect(Answer::query()->where('user_id', $user->id)->count())->toBe(2);
+
+    $result = AssessmentResult::query()->where('user_id', $user->id)->first();
+
+    expect($result)->not->toBeNull()
+        ->and($result->program_code)->toBe('BSIT')
+        ->and($result->category_summary)->toBeArray();
+});
+
+it('rejects submitting the assessment without any answers', function () {
+    $user = User::factory()->consented()->create([
+        'email_verified_at' => now(),
+        'user_type' => 'user',
+    ]);
+
+    Question::query()->create([
+        'question_text' => 'I enjoy solving logical problems.',
+        'category' => 'skills',
+    ]);
+
+    $this->actingAs($user)->post(route('assessment.submit'), [])
+        ->assertRedirect()
+        ->assertSessionHasErrors('assessment');
+
+    expect(AssessmentResult::query()->where('user_id', $user->id)->count())->toBe(0)
+        ->and(Answer::query()->where('user_id', $user->id)->count())->toBe(0);
+});
+
 it('keeps a retake history of assessment recommendations', function () {
     $user = User::factory()->consented()->create([
         'email_verified_at' => now(),

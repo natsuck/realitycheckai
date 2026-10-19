@@ -104,7 +104,7 @@ class AssessmentController extends Controller
 
         foreach ($questions as $question) {
             $rules['question_'.$question->id] = [
-                'required',
+                'nullable',
                 'integer',
                 'between:1,5',
             ];
@@ -115,8 +115,16 @@ class AssessmentController extends Controller
         $answersArray = [];
 
         foreach ($questions as $question) {
+            $key = 'question_'.$question->id;
 
-            $answer = (int) $validated['question_'.$question->id];
+            // Questions left unanswered (blank or missing from the payload)
+            // are omitted; the analysis and summary use whichever items were
+            // actually answered.
+            if (! $request->filled($key)) {
+                continue;
+            }
+
+            $answer = (int) $validated[$key];
 
             // Negatively-worded items are flagged in the database so the
             // scale is inverted before scoring (6 - value keeps the 1..5 range).
@@ -146,6 +154,12 @@ class AssessmentController extends Controller
 
                 'answer_label' => $this->scaleLabels()[$answer],
             ];
+        }
+
+        if ($answersArray === []) {
+            return back()->withErrors([
+                'assessment' => 'Please answer at least one question before submitting the assessment.',
+            ]);
         }
 
         $answerJson = json_encode(
