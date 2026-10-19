@@ -1,61 +1,5 @@
 <x-app-layout title="Admin Analytics">
-    <div class="flex-grow flex flex-col md:flex-row w-full min-h-[calc(100vh-4rem)] bg-surface">
-
-        {{-- Side Navigation --}}
-        <aside class="w-full md:w-64 bg-primary text-white p-4 flex flex-col justify-between shrink-0 shadow-xl z-20">
-            <div>
-                <div class="flex items-center gap-3 mb-6 mt-2 px-2">
-                    <div class="w-10 h-10 rounded-full bg-primary-container border border-slate-400 shadow-sm flex items-center justify-center font-headline font-bold">
-                        {{ strtoupper(substr(auth()->user()->name ?? 'A', 0, 1)) }}
-                    </div>
-                    <div>
-                        <h2 class="text-lg font-headline font-bold text-accent-soft">Admin Portal</h2>
-                        <p class="text-xs text-[#adc7f7]">Management Console</p>
-                    </div>
-                </div>
-
-                <nav class="flex flex-col gap-1 text-xs sm:text-sm font-medium">
-                    <span class="w-full text-left px-3.5 py-2.5 rounded-xl flex items-center gap-3 bg-accent text-primary font-bold shadow-sm cursor-default">
-                        <x-icon name="bar-chart" class="w-4 h-4"/>
-                        <span>Assessment Analytics</span>
-                    </span>
-
-                    <a href="{{ route('dashboard') }}"
-                       class="w-full text-left px-3.5 py-2.5 rounded-xl flex items-center gap-3 transition-all text-[#d6e3ff] hover:bg-primary-container hover:text-white">
-                        <x-icon name="layout-dashboard" class="w-4 h-4"/>
-                        <span>Dashboard</span>
-                    </a>
-
-                    <a href="{{ route('quiz-analytics.index') }}"
-                       class="w-full text-left px-3.5 py-2.5 rounded-xl flex items-center gap-3 transition-all text-[#d6e3ff] hover:bg-primary-container hover:text-white">
-                        <x-icon name="file-text" class="w-4 h-4"/>
-                        <span>Quiz Analytics</span>
-                    </a>
-                </nav>
-            </div>
-
-            <div class="pt-4 mt-6 border-t border-primary-container space-y-1">
-                <a href="{{ route('resources.index') }}"
-                   class="w-full text-left px-3 py-2 rounded-lg text-xs text-accent-soft hover:bg-primary-container flex items-center gap-2 font-medium">
-                    <x-icon name="book-open" class="w-3.5 h-3.5 text-accent"/>
-                    <span>Student Resources</span>
-                </a>
-
-                <form method="POST" action="{{ route('logout') }}" x-data>
-                    @csrf
-                    <button type="submit"
-                            onclick="event.preventDefault(); this.closest('form').submit();"
-                            class="w-full text-left px-3 py-2 rounded-lg text-xs text-rose-300 hover:bg-primary-container flex items-center gap-2">
-                        <x-icon name="log-out" class="w-3.5 h-3.5"/>
-                        <span>Logout</span>
-                    </button>
-                </form>
-            </div>
-        </aside>
-
-        {{-- Main Content --}}
-        <main class="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto overflow-y-auto">
-
+    <x-admin-layout active="analytics">
             <header class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 gap-4">
                 <div>
                     <h2 class="font-headline text-2xl sm:text-3xl font-bold text-primary">
@@ -112,7 +56,7 @@
                     <x-icon name="alert-triangle" class="w-5 h-5 text-amber-500 shrink-0 mt-0.5"/>
                     <div class="text-sm text-amber-900">
                         <span class="font-bold">{{ number_format($flaggedCount) }}</span>
-                        {{ str_plural('assessment', $flaggedCount) }} with response-validity flags (uniform answers or implausibly fast completion). Review before relying on these recommendations.
+                        {{ \Illuminate\Support\Str::plural('assessment', $flaggedCount) }} with response-validity flags (uniform answers or implausibly fast completion). Review before relying on these recommendations.
                     </div>
                 </section>
             @endif
@@ -248,6 +192,5 @@
             <p class="text-xs text-ink-faint leading-relaxed">
                 Confidence values reflect the recommendation engine's self-reported certainty and are guidance signals only &mdash; not calibrated probabilities.
             </p>
-        </main>
-    </div>
+    </x-admin-layout>
 </x-app-layout>

@@ -45,5 +45,8 @@ class DatabaseSeeder extends Seeder
 
         // Call your QuestionSeeder
         $this->call(QuestionSeeder::class);
+
+        // Seed the student Resource Center content
+        $this->call(ResourceSeeder::class);
     }
 }

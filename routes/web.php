@@ -1,11 +1,13 @@
 <?php
 
+use App\Http\Controllers\Admin\ResourceController as AdminResourceController;
 use App\Http\Controllers\AdminAnalyticsController;
 use App\Http\Controllers\AssessmentController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\QuizAnalyticsController;
 use App\Http\Controllers\QuizAttemptController;
 use App\Http\Controllers\QuizController;
+use App\Http\Controllers\ResourceController;
 use App\Http\Controllers\UserController;
 use Illuminate\Support\Facades\Route;
 
@@ -13,9 +15,7 @@ Route::get('/', function () {
     return view('home');
 });
 
-Route::get('/resources', function () {
-    return view('resources.index');
-})->name('resources.index');
+Route::get('/resources', [ResourceController::class, 'index'])->name('resources.index');
 
 Route::get('/dashboard', [UserController::class, 'index'])
     ->middleware(['auth', 'verified'])
@@ -54,10 +54,16 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/quiz-attempts/{quizAttempt}', [QuizAttemptController::class, 'show'])->name('quiz-attempts.show');
     Route::get('/quiz-analytics', [QuizAnalyticsController::class, 'index'])->name('quiz-analytics.index');
 
-    // Admin analytics (guidance counselor)
-    Route::get('/admin/analytics', [AdminAnalyticsController::class, 'index'])->name('admin.analytics');
-    Route::get('/admin/analytics/programs', [AdminAnalyticsController::class, 'programDistribution'])->name('admin.analytics.programs');
+    // Admin panel
+    Route::prefix('admin')->name('admin.')->middleware('admin')->group(function () {
+        Route::get('/analytics', [AdminAnalyticsController::class, 'index'])->name('analytics');
+        Route::get('/analytics/programs', [AdminAnalyticsController::class, 'programDistribution'])->name('analytics.programs');
 
+        Route::get('/resources', [AdminResourceController::class, 'index'])->name('resources.index');
+        Route::post('/resources', [AdminResourceController::class, 'store'])->name('resources.store');
+        Route::put('/resources/{resource}', [AdminResourceController::class, 'update'])->name('resources.update');
+        Route::delete('/resources/{resource}', [AdminResourceController::class, 'destroy'])->name('resources.destroy');
+    });
 });
 
 require __DIR__.'/auth.php';
