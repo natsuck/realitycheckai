@@ -59,7 +59,7 @@ return [
         ],
 
         'assessment_max_tokens' => env('OPENAI_ASSESSMENT_MAX_TOKENS', 1200),
-        'quiz_max_tokens' => env('OPENAI_QUIZ_MAX_TOKENS', 2500),
+        'quiz_max_tokens' => env('OPENAI_QUIZ_MAX_TOKENS', 6000),
         'quiz_json_retries' => env('OPENAI_QUIZ_JSON_RETRIES', 3),
         'answer_json_retries' => env('OPENAI_ANSWER_JSON_RETRIES', 2),
         'cache_ttl' => env('OPENAI_QUIZ_CACHE_TTL', 604800),

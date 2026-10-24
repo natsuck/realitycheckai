@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class AssessmentResult extends Model
 {
@@ -20,6 +21,8 @@ class AssessmentResult extends Model
         'completion_seconds',
         'result',
         'category_summary',
+        'score_breakdown',
+        'instrument_version',
         'completed_at',
     ];
 
@@ -31,6 +34,7 @@ class AssessmentResult extends Model
             'response_flags' => 'array',
             'result' => 'array',
             'category_summary' => 'array',
+            'score_breakdown' => 'array',
             'completed_at' => 'datetime',
         ];
     }
@@ -43,5 +47,10 @@ class AssessmentResult extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    public function answers(): HasMany
+    {
+        return $this->hasMany(Answer::class);
     }
 }

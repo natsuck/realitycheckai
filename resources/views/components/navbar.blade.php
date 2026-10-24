@@ -34,7 +34,7 @@
                 </a>
 
                 <a href="{{ route('quizzes.index') }}"
-                   class="px-3.5 py-2 rounded-lg text-sm transition-all {{ request()->routeIs('quizzes.*') || request()->routeIs('quiz-attempts.*') || request()->routeIs('quiz-analytics.*') ? 'text-primary font-semibold bg-surface-low' : 'text-ink-muted hover:text-primary hover:bg-surface' }}">
+                   class="px-3.5 py-2 rounded-lg text-sm transition-all {{ request()->routeIs('quizzes.*') || request()->routeIs('quiz-attempts.*') ? 'text-primary font-semibold bg-surface-low' : 'text-ink-muted hover:text-primary hover:bg-surface' }}">
                     {{ __('AI Quizzes') }}
                 </a>
             @endauth
@@ -161,7 +161,7 @@
             </a>
 
             <a href="{{ route('quizzes.index') }}"
-               class="block w-full text-left px-4 py-2.5 rounded-lg text-sm font-medium {{ request()->routeIs('quizzes.*') || request()->routeIs('quiz-attempts.*') || request()->routeIs('quiz-analytics.*') ? 'bg-surface-low text-primary font-bold' : 'text-ink-muted' }}">
+               class="block w-full text-left px-4 py-2.5 rounded-lg text-sm font-medium {{ request()->routeIs('quizzes.*') || request()->routeIs('quiz-attempts.*') ? 'bg-surface-low text-primary font-bold' : 'text-ink-muted' }}">
                 {{ __('AI Quizzes') }}
             </a>
         @endauth

@@ -10,8 +10,17 @@ class Answer extends Model
     protected $fillable = [
         'user_id',
         'question_id',
+        'assessment_result_id',
         'answer',
+        'is_correct',
     ];
+
+    protected function casts(): array
+    {
+        return [
+            'is_correct' => 'boolean',
+        ];
+    }
 
     public function question(): BelongsTo
     {

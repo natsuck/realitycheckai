@@ -7,7 +7,6 @@
     $links = [
         ['key' => 'analytics', 'route' => 'admin.analytics', 'icon' => 'bar-chart', 'label' => 'Assessment Analytics'],
         ['key' => 'resources', 'route' => 'admin.resources.index', 'icon' => 'book-open', 'label' => 'Resource Center'],
-        ['key' => 'quiz-analytics', 'route' => 'quiz-analytics.index', 'icon' => 'file-text', 'label' => 'Quiz Analytics'],
         ['key' => 'dashboard', 'route' => 'dashboard', 'icon' => 'layout-dashboard', 'label' => 'Dashboard'],
     ];
 @endphp

@@ -8,9 +8,20 @@
                 <p class="text-sm text-ink-muted mt-1">{{ $quiz->questions->count() }} questions · {{ $timeLimitMinutes }} minutes</p>
             </div>
             <div class="rounded-xl bg-primary px-4 py-2 text-sm font-bold text-white shadow-md shrink-0 tabular-nums">
-                <span id="timer">{{ sprintf('%02d:%02d', $timeLimitMinutes, 0) }}</span>
+                <span id="timer">{{ sprintf('%02d:%02d', intdiv($secondsRemaining, 60), $secondsRemaining % 60) }}</span>
             </div>
         </div>
+
+        @if ($errors->any())
+            <div class="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800" role="alert">
+                <p class="font-semibold">Please correct the following before submitting:</p>
+                <ul class="mt-1 list-inside list-disc">
+                    @foreach ($errors->all() as $error)
+                        <li>{{ $error }}</li>
+                    @endforeach
+                </ul>
+            </div>
+        @endif
 
         <form id="quiz-form" method="POST" action="{{ route('quizzes.attempts.store', $quiz) }}" class="card overflow-hidden mb-8">
             @csrf
@@ -30,7 +41,6 @@
                     <section class="question-page {{ $loop->first ? '' : 'hidden' }}" data-page="{{ $loop->index }}">
                         <div class="flex flex-wrap items-center gap-2">
                             <span class="rounded-full bg-surface px-3 py-1 text-xs font-semibold uppercase tracking-wide text-ink-muted">{{ $question->type === 'mcq' ? 'MCQ' : 'Identification' }}</span>
-                            <span class="rounded-full bg-accent/20 px-3 py-1 text-xs font-semibold text-accent-ink">{{ ucfirst($question->difficulty) }}</span>
                         </div>
 
                         <h2 class="mt-5 font-headline text-xl font-bold leading-8 text-ink">{{ $loop->iteration }}. {{ $question->question }}</h2>
@@ -39,7 +49,7 @@
                             <div class="mt-6 grid gap-3">
                                 @foreach ($question->choices as $choice)
                                     <label class="flex cursor-pointer items-center gap-3 rounded-xl border border-surface-low bg-surface/50 px-4 py-3 transition hover:border-accent hover:bg-accent/10 has-[:checked]:border-accent has-[:checked]:bg-accent/10">
-                                        <input type="radio" name="answers[{{ $question->id }}]" value="{{ $choice }}" class="h-4 w-4 border-slate-300 text-primary focus:ring-accent">
+                                        <input type="radio" name="answers[{{ $question->id }}]" value="{{ $choice }}" @checked(old('answers.'.$question->id) === $choice) class="h-4 w-4 border-slate-300 text-primary focus:ring-accent">
                                         <span class="text-sm font-medium text-ink">{{ $choice }}</span>
                                     </label>
                                 @endforeach
@@ -47,7 +57,7 @@
                         @else
                             <div class="mt-6">
                                 <label for="answer-{{ $question->id }}" class="block text-sm font-semibold text-primary-container">Answer</label>
-                                <input id="answer-{{ $question->id }}" name="answers[{{ $question->id }}]" type="text" class="mt-2 block w-full rounded-xl border-surface-high bg-white text-ink shadow-sm focus:border-accent focus:ring-accent" autocomplete="off">
+                                <input id="answer-{{ $question->id }}" name="answers[{{ $question->id }}]" type="text" value="{{ old('answers.'.$question->id) }}" class="mt-2 block w-full rounded-xl border-surface-high bg-white text-ink shadow-sm focus:border-accent focus:ring-accent" autocomplete="off">
                             </div>
                         @endif
                     </section>
@@ -81,7 +91,7 @@
         const quizForm = document.getElementById('quiz-form');
         const timer = document.getElementById('timer');
         let currentPage = 0;
-        let secondsLeft = {{ $timeLimitMinutes * 60 }};
+        let secondsLeft = {{ $secondsRemaining }};
         let submitted = false;
         const countdown = setInterval(tick, 1000);
 

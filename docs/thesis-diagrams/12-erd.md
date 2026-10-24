@@ -70,11 +70,20 @@ erDiagram
     quiz_questions {
         bigint id PK
         bigint quiz_id FK
-        enum type "mcq|identification"
+        enum type "mcq|identification (legacy)"
         text question
         json choices "MCQ only"
         text correct_answer
-        enum difficulty "easy|medium|hard"
+        text explanation "MCQ answer explanation"
+        timestamp created_at
+        timestamp updated_at
+    }
+
+    quiz_flashcards {
+        bigint id PK
+        bigint quiz_id FK
+        text front
+        text back
         timestamp created_at
         timestamp updated_at
     }
@@ -113,6 +122,7 @@ erDiagram
     users ||--o{ assessment_results : "earns"
     users ||--o{ quizzes : "owns"
     quizzes ||--o{ quiz_questions : "contains"
+    quizzes ||--o{ quiz_flashcards : "studies"
     quizzes ||--o{ quiz_attempts : "attempted via"
     users ||--o{ quiz_attempts : "takes"
     quiz_attempts ||--o{ quiz_answers : "records"

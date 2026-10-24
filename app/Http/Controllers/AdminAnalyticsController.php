@@ -20,10 +20,16 @@ class AdminAnalyticsController extends Controller
             ->distinct('user_id')
             ->count('user_id');
 
-        $avgConfidence = round(
-            (float) AssessmentResult::query()->avg('confidence'),
-            1
-        );
+        $programResults = AssessmentResult::query()
+            ->whereNotNull('program_code')
+            ->whereNotIn('program_code', ['N/A', 'PENDING']);
+        $programResultCount = (clone $programResults)->count();
+        $legacyConfidence = AssessmentResult::query()
+            ->whereNull('instrument_version')
+            ->avg('confidence');
+        $avgConfidence = $legacyConfidence === null
+            ? null
+            : round((float) $legacyConfidence, 1);
 
         $sourceCounts = AssessmentResult::query()
             ->select('source', DB::raw('count(*) as total'))
@@ -42,16 +48,15 @@ class AdminAnalyticsController extends Controller
             ->whereNotNull('response_flags')
             ->count();
 
-        $programBreakdown = AssessmentResult::query()
-            ->selectRaw('program_code, program_name, count(*) as total, avg(confidence) as avg_confidence')
+        $programBreakdown = (clone $programResults)
+            ->selectRaw('program_code, program_name, count(*) as total')
             ->groupBy('program_code', 'program_name')
             ->orderByDesc('total')
             ->get()
-            ->map(function ($row) use ($totalAssessments) {
-                $row->percentage = $totalAssessments > 0
-                    ? round(($row->total / $totalAssessments) * 100, 1)
+            ->map(function ($row) use ($programResultCount) {
+                $row->percentage = $programResultCount > 0
+                    ? round(($row->total / $programResultCount) * 100, 1)
                     : 0.0;
-                $row->avg_confidence = round((float) $row->avg_confidence, 1);
 
                 return $row;
             });
@@ -83,6 +88,8 @@ class AdminAnalyticsController extends Controller
         abort_unless($request->user()?->isAdmin(), 403);
 
         $distribution = AssessmentResult::query()
+            ->whereNotNull('program_code')
+            ->whereNotIn('program_code', ['N/A', 'PENDING'])
             ->selectRaw('program_code, count(*) as total')
             ->groupBy('program_code')
             ->orderByDesc('total')

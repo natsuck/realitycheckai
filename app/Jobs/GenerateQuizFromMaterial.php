@@ -45,6 +45,7 @@ class GenerateQuizFromMaterial implements ShouldQueue
 
         DB::transaction(function () use ($quiz, $extractedText, $generatedQuiz): void {
             $quiz->questions()->delete();
+            $quiz->flashcards()->delete();
 
             foreach ($generatedQuiz['mcqs'] as $question) {
                 $quiz->questions()->create([
@@ -52,17 +53,14 @@ class GenerateQuizFromMaterial implements ShouldQueue
                     'question' => $question['question'],
                     'choices' => $question['choices'],
                     'correct_answer' => $question['answer'],
-                    'difficulty' => $question['difficulty'],
+                    'explanation' => $question['explanation'],
                 ]);
             }
 
-            foreach ($generatedQuiz['identification'] as $question) {
-                $quiz->questions()->create([
-                    'type' => QuizQuestion::TYPE_IDENTIFICATION,
-                    'question' => $question['question'],
-                    'choices' => null,
-                    'correct_answer' => $question['answer'],
-                    'difficulty' => $question['difficulty'],
+            foreach ($generatedQuiz['flashcards'] as $flashcard) {
+                $quiz->flashcards()->create([
+                    'front' => $flashcard['front'],
+                    'back' => $flashcard['back'],
                 ]);
             }
 
@@ -76,7 +74,8 @@ class GenerateQuizFromMaterial implements ShouldQueue
 
         Log::info('AI quiz generated successfully.', [
             'quiz_id' => $quiz->id,
-            'question_count' => 15,
+            'question_count' => count($generatedQuiz['mcqs']),
+            'flashcard_count' => count($generatedQuiz['flashcards']),
         ]);
     }
 

@@ -29,17 +29,18 @@
                     <h3 class="font-bold text-primary">1. Data Collected</h3>
                     <ul class="mt-2 list-inside list-disc space-y-1">
                         <li>Your account information (name and email address).</li>
-                        <li>Your Likert-scale answers to the career assessment questions.</li>
-                        <li>The generated recommendations, confidence scores, and assessment history.</li>
+                        <li>Your 90 career-interest responses and 60 scholastic aptitude responses.</li>
+                        <li>Your computed RIASEC and aptitude scores, AI-generated program suggestions, and assessment history.</li>
                     </ul>
                 </div>
 
                 <div>
                     <h3 class="font-bold text-primary">2. Purpose of Processing</h3>
                     <p class="mt-2">
-                        Your data is used solely to generate guidance-based program recommendations, to display your
-                        results back to you, and to produce anonymized aggregate statistics that help guidance
-                        counselors understand overall student tendencies. It is not used as the sole basis for any
+                        Your responses are scored by the application. The resulting score profile and program
+                        descriptions are sent to the configured AI provider (OpenAI when selected) to explain the profile and rank
+                        exploratory program suggestions; your name, email, and individual item responses are not
+                        included in that AI request. The suggestions are advisory and are not the sole basis for any
                         enrollment decision.
                     </p>
                 </div>
@@ -47,8 +48,10 @@
                 <div>
                     <h3 class="font-bold text-primary">3. Storage and Retention</h3>
                     <p class="mt-2">
-                        Your data is stored in a secured database accessible only to authorized personnel. Records are
-                        retained only for as long as necessary for the stated academic purposes.
+                        Your responses and results are stored in the application database and remain associated with
+                        your account. Authorized school administrators can see identifiable recent submissions,
+                        including student names, email addresses, and summary results. Deleting your account from
+                        Profile permanently deletes its associated assessment records.
                     </p>
                 </div>
 
@@ -57,7 +60,8 @@
                     <p class="mt-2">
                         Under the Data Privacy Act of 2012, you have the right to access your data, request correction
                         or erasure, object to processing, and lodge a complaint with the National Privacy Commission.
-                        Participation is voluntary and you may withdraw consent at any time by requesting account deletion.
+                        Participation is voluntary. You may delete your account from Profile; this permanently removes
+                        its associated application records.
                     </p>
                 </div>
             </div>

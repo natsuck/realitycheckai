@@ -5,10 +5,12 @@ namespace App\Http\Controllers;
 use App\Models\Answer;
 use App\Models\AssessmentResult;
 use App\Models\Question;
+use App\Services\AssessmentScoringService;
 use App\Services\OpenAIService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 
 class AssessmentController extends Controller
 {
@@ -27,21 +29,35 @@ class AssessmentController extends Controller
 
         // Used by submit() to compute a rough completion duration for the
         // rapid-response validity check.
-        session(['assessment_started_at' => now()->toDateTimeString()]);
+        if (! session()->has('assessment_started_at')) {
+            session(['assessment_started_at' => now()->toDateTimeString()]);
+        }
 
         // Shuffle once, then remember the order for the rest of the session
         // so refreshes and back-navigation never reshuffle the questionnaire.
         // The view renders a friendly "no questions available" card when empty
         // instead of bouncing the user back.
-        $allQuestions = Question::query()->get()->keyBy('id');
+        $instrumentQuestions = Question::query()
+            ->where('instrument_version', Question::CURRENT_INSTRUMENT_VERSION)
+            ->orderBy('item_number')
+            ->get();
+        $isVersionedInstrument = $instrumentQuestions->isNotEmpty();
+        $allQuestions = ($isVersionedInstrument
+            ? $instrumentQuestions
+            : $this->legacyQuestions())
+            ->keyBy('id');
 
         $questionIds = session('assessment_question_ids');
 
-        $orderIsUsable = is_array($questionIds)
+        $orderIsUsable = ! $isVersionedInstrument
+            && is_array($questionIds)
             && count($questionIds) === $allQuestions->count()
             && array_diff($questionIds, $allQuestions->keys()->all()) === [];
 
-        if (! $orderIsUsable && $allQuestions->isNotEmpty()) {
+        if ($isVersionedInstrument && $allQuestions->isNotEmpty()) {
+            $questionIds = $allQuestions->keys()->all();
+            session(['assessment_question_ids' => $questionIds]);
+        } elseif (! $orderIsUsable && $allQuestions->isNotEmpty()) {
             $questionIds = $allQuestions->keys()->all();
             shuffle($questionIds); // reduces order bias
 
@@ -53,10 +69,50 @@ class AssessmentController extends Controller
             ->values();
 
         $categoryLabels = $this->categoryLabels();
+        $sectionLabels = $this->sectionLabels();
+        $likertLabels = $this->scaleLabels();
+        $interestScaleLabels = [
+            1 => 'Strongly Dislike',
+            2 => 'Dislike',
+            3 => 'Neutral',
+            4 => 'Like',
+            5 => 'Strongly Like',
+        ];
+        $wizardQuestions = $questions->map(function (Question $question) use ($categoryLabels, $sectionLabels, $likertLabels, $interestScaleLabels): array {
+            $isMultipleChoice = $question->question_type === 'multiple_choice';
+            $scaleLabels = $question->instrument_version ? $interestScaleLabels : $likertLabels;
+            $options = $isMultipleChoice
+                ? collect($question->choices ?? [])
+                    ->values()
+                    ->map(fn (array $choice, int $index): array => [
+                        'value' => $index + 1,
+                        'label' => $choice['label'] ?? chr(65 + $index),
+                        'text' => $choice['text'] ?? '',
+                    ])
+                    ->all()
+                : collect($scaleLabels)
+                    ->map(fn (string $label, int $value): array => [
+                        'value' => $value,
+                        'label' => (string) $value,
+                        'text' => $label,
+                    ])
+                    ->values()
+                    ->all();
+
+            return [
+                'id' => $question->id,
+                'text' => $question->question_text,
+                'label' => $categoryLabels[$question->category] ?? ucfirst((string) $question->category),
+                'section' => $sectionLabels[$question->section] ?? '',
+                'type' => $isMultipleChoice ? 'multiple_choice' : 'likert',
+                'options' => $options,
+            ];
+        })->all();
 
         return view('assessment.assessment', compact(
             'questions',
-            'categoryLabels'
+            'categoryLabels',
+            'wizardQuestions'
         ));
     }
 
@@ -90,9 +146,14 @@ class AssessmentController extends Controller
                 ]);
         }
 
-        $questions = Question::query()
-            ->orderBy('id')
+        $instrumentQuestions = Question::query()
+            ->where('instrument_version', Question::CURRENT_INSTRUMENT_VERSION)
+            ->orderBy('item_number')
             ->get();
+        $isVersionedInstrument = $instrumentQuestions->isNotEmpty();
+        $questions = $isVersionedInstrument
+            ? $instrumentQuestions
+            : $this->legacyQuestions();
 
         if ($questions->isEmpty()) {
             return back()->withErrors([
@@ -101,16 +162,33 @@ class AssessmentController extends Controller
         }
 
         $rules = [];
+        $attributes = [];
 
         foreach ($questions as $question) {
-            $rules['question_'.$question->id] = [
-                'nullable',
+            $field = 'question_'.$question->id;
+            $rules[$field] = [
+                $isVersionedInstrument ? 'required' : 'nullable',
                 'integer',
-                'between:1,5',
+                $question->question_type === 'multiple_choice'
+                    ? 'between:1,4'
+                    : 'between:1,5',
             ];
+            $attributes[$field] = $isVersionedInstrument
+                ? 'question '.$question->item_number
+                : 'assessment question';
         }
 
-        $validated = $request->validate($rules);
+        $validated = $request->validate($rules, [], $attributes);
+
+        if ($isVersionedInstrument) {
+            return $this->submitVersionedAssessment(
+                $request,
+                $openai,
+                app(AssessmentScoringService::class),
+                $questions,
+                $validated
+            );
+        }
 
         $answersArray = [];
 
@@ -218,10 +296,18 @@ class AssessmentController extends Controller
 
     public function results(Request $request, OpenAIService $openai)
     {
-        $answers = Answer::query()
+        $latestResult = Auth::user()->assessmentResults()->first();
+        $answerQuery = Answer::query()
             ->with('question')
-            ->where('user_id', Auth::id())
-            ->get()
+            ->where('user_id', Auth::id());
+
+        if ($latestResult?->instrument_version) {
+            $answerQuery->where('assessment_result_id', $latestResult->id);
+        } else {
+            $answerQuery->whereNull('assessment_result_id');
+        }
+
+        $answers = $answerQuery->get()
             ->sortBy(fn (Answer $answer) => $answer->question?->id ?? 0)
             ->values();
 
@@ -234,8 +320,6 @@ class AssessmentController extends Controller
         | values are only used as a legacy fallback for pre-existing sessions.
         |--------------------------------------------------------------------------
         */
-
-        $latestResult = Auth::user()->assessmentResults()->first();
 
         if ($latestResult) {
             $aiFeedback = $latestResult->result ?? [];
@@ -315,9 +399,15 @@ class AssessmentController extends Controller
 
         $responseFlags = $latestResult?->response_flags ?? [];
 
-        $programMatches = $this->programMatches($openai, $answers, $aiFeedback);
+        $isVersionedResult = (bool) $latestResult?->instrument_version;
+        $programMatches = $isVersionedResult
+            ? []
+            : $this->programMatches($openai, $answers, $aiFeedback);
 
-        $aptitude = $this->aptitudeScore($summary ?? [], $latestResult?->strongest_trait);
+        $aptitude = $isVersionedResult
+            ? null
+            : $this->aptitudeScore($summary ?? [], $latestResult?->strongest_trait);
+        $scoreBreakdown = $latestResult?->score_breakdown;
 
         $strongestTrait = $latestResult?->strongest_trait;
 
@@ -331,8 +421,103 @@ class AssessmentController extends Controller
             'responseFlags',
             'programMatches',
             'aptitude',
-            'strongestTrait'
+            'strongestTrait', 'scoreBreakdown',
+            'isVersionedResult'
         ));
+    }
+
+    /**
+     * @param  Collection<int, Question>  $questions
+     * @param  array<string, mixed>  $validated
+     */
+    private function submitVersionedAssessment(
+        Request $request,
+        OpenAIService $openai,
+        AssessmentScoringService $scoring,
+        Collection $questions,
+        array $validated
+    ) {
+        $responses = $questions->map(function (Question $question) use ($validated): array {
+            return [
+                'question' => $question,
+                'answer' => (int) $validated['question_'.$question->id],
+            ];
+        });
+
+        $scoreBreakdown = $scoring->score($responses);
+        $summary = $scoring->categorySummary($scoreBreakdown);
+        $profile = $openai->analyzeAssessmentProfile($scoreBreakdown);
+        $topInterest = collect($scoreBreakdown['interest'])->sortByDesc('average')->first();
+        $interestResponses = $responses
+            ->filter(fn (array $response) => $response['question']->section === 'interest')
+            ->map(fn (array $response): array => ['answer' => $response['answer']]);
+        $responseFlags = $this->detectResponseFlags($interestResponses, null);
+        $completionSeconds = $this->completionSeconds();
+
+        DB::transaction(function () use ($profile, $topInterest, $responseFlags, $completionSeconds, $scoreBreakdown, $summary, $responses): void {
+            $result = AssessmentResult::query()->create([
+                'user_id' => Auth::id(),
+                'program_code' => $profile['recommended_program']['code'] ?? 'PENDING',
+                'program_name' => $profile['recommended_program']['name'] ?? 'AI match unavailable',
+                'confidence' => 0,
+                'fit_level' => 'Profile only',
+                'source' => $profile['source'] ?? 'openai',
+                'strongest_trait' => $topInterest['label'] ?? null,
+                'strongest_trait_percentage' => $topInterest['percentage'] ?? 0,
+                'response_flags' => $responseFlags ?: null,
+                'completion_seconds' => $completionSeconds,
+                'result' => $profile,
+                'category_summary' => $summary,
+                'score_breakdown' => $scoreBreakdown,
+                'instrument_version' => Question::CURRENT_INSTRUMENT_VERSION,
+                'completed_at' => now(),
+            ]);
+
+            foreach ($responses as $response) {
+                /** @var Question $question */
+                $question = $response['question'];
+
+                Answer::query()->create([
+                    'user_id' => Auth::id(),
+                    'question_id' => $question->id,
+                    'assessment_result_id' => $result->id,
+                    'answer' => $response['answer'],
+                    'is_correct' => $question->question_type === 'multiple_choice'
+                        ? $response['answer'] === $question->correct_answer
+                        : null,
+                ]);
+            }
+        });
+
+        session([
+            'ai_feedback' => $profile,
+            'assessment_summary' => $summary,
+            'assessment_disclaimer' => $profile['disclaimer'],
+            'assessment_completed_at' => now()->toDateTimeString(),
+        ]);
+        session()->flash('just_completed', true);
+        session()->forget(['assessment_question_ids', 'assessment_started_at']);
+
+        return redirect()->route('results.index');
+    }
+
+    /**
+     * Keep legacy questionnaire fixtures available to existing tests while
+     * preventing an unseeded production install from silently serving the
+     * retired instrument.
+     *
+     * @return Collection<int, Question>
+     */
+    private function legacyQuestions(): Collection
+    {
+        if (! app()->environment('testing')) {
+            return collect();
+        }
+
+        return Question::query()
+            ->whereNull('instrument_version')
+            ->orderBy('id')
+            ->get();
     }
 
     /**
@@ -617,6 +802,29 @@ class AssessmentController extends Controller
             'values' => 'Career Values',
 
             'technical' => 'Technical Aptitude',
+
+            'R' => 'Realistic',
+            'I' => 'Investigative',
+            'A' => 'Artistic',
+            'S' => 'Social',
+            'E' => 'Enterprising',
+            'C' => 'Conventional',
+            'verbal' => 'Verbal Reasoning',
+            'quantitative' => 'Quantitative Reasoning',
+            'analytical' => 'Analytical and Scientific Reasoning',
+        ];
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function sectionLabels(): array
+    {
+        return [
+            'interest' => 'Career Interest Inventory',
+            'verbal' => 'Verbal Reasoning and Reading Comprehension',
+            'quantitative' => 'Quantitative Reasoning',
+            'analytical' => 'Analytical and Scientific Reasoning',
         ];
     }
 

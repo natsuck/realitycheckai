@@ -17,9 +17,9 @@
         {{-- Stats --}}
         <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div class="card p-6 border border-surface-low">
-                <p class="text-xs font-semibold uppercase tracking-wide text-ink-faint">Assessment Answers</p>
-                <p class="mt-3 text-3xl font-headline font-bold text-primary">{{ $assessmentAnswered }}</p>
-                <p class="mt-1 text-xs text-ink-muted">Personality, interests, skills, and values</p>
+                <p class="text-xs font-semibold uppercase tracking-wide text-ink-faint">Assessment Attempts</p>
+                <p class="mt-3 text-3xl font-headline font-bold text-primary">{{ $assessmentAttempts }}</p>
+                <p class="mt-1 text-xs text-ink-muted">Completed 150-item assessments</p>
             </div>
             <div class="card p-6 border border-surface-low">
                 <p class="text-xs font-semibold uppercase tracking-wide text-ink-faint">Generated Quizzes</p>
@@ -35,14 +35,13 @@
 
         {{-- Modules + Recent Activity --}}
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 pb-8">
-
             <section class="lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-5">
                 <a href="{{ route('assessment.show') }}" class="card p-6 group hover:border-primary transition-all hover:-translate-y-0.5 hover:shadow-ambient-lg">
                     <div class="flex h-11 w-11 items-center justify-center rounded-xl bg-surface-low text-primary-container group-hover:bg-primary group-hover:text-white transition-colors">
                         <x-icon name="brain" class="w-5 h-5"/>
                     </div>
                     <h3 class="mt-5 font-headline font-bold text-base text-primary">AI Program Assessment</h3>
-                    <p class="mt-2 text-xs leading-relaxed text-ink-muted">Answer a guided Likert-scale assessment and receive a structured program recommendation with confidence and evidence.</p>
+                    <p class="mt-2 text-xs leading-relaxed text-ink-muted">Complete 90 career-interest items and 60 aptitude questions to receive a scored profile with an AI explanation.</p>
                 </a>
 
                 <a href="{{ route('quizzes.create') }}" class="card p-6 group hover:border-primary transition-all hover:-translate-y-0.5 hover:shadow-ambient-lg">
@@ -50,24 +49,17 @@
                         <x-icon name="file-text" class="w-5 h-5"/>
                     </div>
                     <h3 class="mt-5 font-headline font-bold text-base text-primary">AI Quiz Generator</h3>
-                    <p class="mt-2 text-xs leading-relaxed text-ink-muted">Upload PDF, DOCX, or TXT learning materials and generate MCQ plus identification quizzes with OpenAI.</p>
+                    <p class="mt-2 text-xs leading-relaxed text-ink-muted">Upload PDF, DOCX, or TXT material to generate reviewable MCQ quizzes and separate study flashcards.</p>
                 </a>
 
                 <a href="{{ route('results.index') }}" class="card p-6 group hover:border-primary transition-all hover:-translate-y-0.5 hover:shadow-ambient-lg">
                     <div class="flex h-11 w-11 items-center justify-center rounded-xl bg-surface-low text-primary-container group-hover:bg-primary group-hover:text-white transition-colors">
                         <x-icon name="compass" class="w-5 h-5"/>
                     </div>
-                    <h3 class="mt-5 font-headline font-bold text-base text-primary">Recommendation Results</h3>
-                    <p class="mt-2 text-xs leading-relaxed text-ink-muted">Review your recommended program, confidence score, strengths, growth areas, and next steps.</p>
+                    <h3 class="mt-5 font-headline font-bold text-base text-primary">Assessment Results</h3>
+                    <p class="mt-2 text-xs leading-relaxed text-ink-muted">Review your RIASEC profile, separate aptitude scores, AI explanation, and next steps.</p>
                 </a>
 
-                <a href="{{ route('quiz-analytics.index') }}" class="card p-6 group hover:border-primary transition-all hover:-translate-y-0.5 hover:shadow-ambient-lg">
-                    <div class="flex h-11 w-11 items-center justify-center rounded-xl bg-surface-low text-primary-container group-hover:bg-primary group-hover:text-white transition-colors">
-                        <x-icon name="bar-chart" class="w-5 h-5"/>
-                    </div>
-                    <h3 class="mt-5 font-headline font-bold text-base text-primary">Quiz Analytics</h3>
-                    <p class="mt-2 text-xs leading-relaxed text-ink-muted">Track score trends, AI confidence, and difficulty-level performance after quiz attempts.</p>
-                </a>
             </section>
 
             <aside class="space-y-5">
@@ -87,25 +79,8 @@
                         @endforelse
                     </div>
                 </section>
-
-                <section class="rounded-2xl bg-gradient-to-b from-primary to-primary-container p-6 text-white shadow-ambient">
-                    <h3 class="font-headline font-bold text-base">Defense-ready AI flow</h3>
-                    <div class="mt-4 space-y-3 text-sm text-slate-200">
-                        <div class="flex items-center gap-3">
-                            <span class="h-2 w-2 rounded-full bg-emerald-400"></span>
-                            Structured recommendation output
-                        </div>
-                        <div class="flex items-center gap-3">
-                            <span class="h-2 w-2 rounded-full bg-sky-400"></span>
-                            Queue-based quiz generation
-                        </div>
-                        <div class="flex items-center gap-3">
-                            <span class="h-2 w-2 rounded-full bg-accent"></span>
-                            Semantic answer evaluation
-                        </div>
-                    </div>
-                </section>
             </aside>
+
         </div>
     </div>
 </x-app-layout>

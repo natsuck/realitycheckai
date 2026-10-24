@@ -72,10 +72,26 @@ class QuizController extends Controller
 
         $quiz->load([
             'questions' => fn ($query) => $query->orderBy('id'),
+            'flashcards' => fn ($query) => $query->orderBy('id'),
             'attempts' => fn ($query) => $query->where('user_id', Auth::id())->latest(),
         ]);
 
         return view('quizzes.show', compact('quiz'));
+    }
+
+    public function flashcards(Quiz $quiz): View|RedirectResponse
+    {
+        $this->authorizeOwner($quiz);
+
+        if (! $quiz->isReady()) {
+            return redirect()
+                ->route('quizzes.show', $quiz)
+                ->with('status', 'Quiz generation is not complete yet. Study the flashcards after generation finishes.');
+        }
+
+        $quiz->load('flashcards');
+
+        return view('quizzes.flashcards', compact('quiz'));
     }
 
     public function status(Quiz $quiz): JsonResponse

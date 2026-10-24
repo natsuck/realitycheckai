@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Exceptions\OpenAIRequestException;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Facades\Http;
@@ -102,7 +103,11 @@ class OpenAIService
                 'message' => $exception->getMessage(),
             ]);
 
-            throw new RuntimeException('OpenAI request failed: '.$exception->getMessage(), previous: $exception);
+            $message = $exception instanceof ConnectionException
+                ? 'Unable to reach the OpenAI API. Check internet/DNS connectivity, firewall or proxy settings, and OPENAI_BASE_URL. Details: '.$exception->getMessage()
+                : 'OpenAI request failed: '.$exception->getMessage();
+
+            throw new OpenAIRequestException($message, previous: $exception);
         }
     }
 
@@ -239,6 +244,207 @@ PROMPT;
                 return $this->fallbackRecommendation($answerRows, $retryException->getMessage());
             }
         }
+    }
+
+    /**
+     * Explain the computed assessment profile and offer exploratory,
+     * non-binding program matches based on fixed program descriptions.
+     *
+     * @param  array<string, mixed>  $scoreBreakdown
+     * @return array<string, mixed>
+     */
+    public function analyzeAssessmentProfile(array $scoreBreakdown): array
+    {
+        $programs = collect($this->programDetails())
+            ->only(['BSAIS', 'BSIT', 'BSCS', 'BSTM', 'BSHM'])
+            ->map(fn (array $program, string $code): array => [
+                'code' => $code,
+                'name' => $program['name'],
+                'description' => $program['description'],
+                'careers' => $program['careers'],
+            ])
+            ->values()
+            ->all();
+        $payload = json_encode([
+            'student_scores' => $scoreBreakdown,
+            'programs' => $programs,
+        ], JSON_PRETTY_PRINT);
+        $prompt = <<<PROMPT
+You are an AI assistant for a college guidance assessment. Explain the computed profile and generate exploratory matches among the five provided programs.
+
+The RIASEC inventory and scholastic aptitude sections measure different things. Keep their scores separate: do not calculate a combined score, invent weights, compare the student with a norm group, infer grades or eligibility, or claim this is a validated NCAE or psychometric program mapping.
+
+RIASEC dimensions refer to Realistic (practical, hands-on activities), Investigative (analysis and inquiry), Artistic (creative expression), Social (helping and collaborating), Enterprising (leadership and persuasion), and Conventional (organization and accuracy).
+
+Use the six RIASEC scores as the primary basis for exploratory program fit. Use aptitude results only as separate context for topics the student may want to explore; never treat a score as a pass/fail threshold or disqualifier. Base matches only on the supplied program descriptions and score profile. Return exactly the five supplied program codes ranked from most to least worth exploring. Do not produce numerical compatibility percentages or confidence probabilities.
+
+These are possibilities for exploration, not placement decisions. The student retains full choice and may prefer any program. Do not infer the student's personal goals or preferences beyond their submitted responses. Avoid imperative or deterministic language. Give concise reasons and cite relevant score evidence without claiming certainty. The application will enforce the supplied program codes and official names.
+
+Return strict JSON with:
+{
+  "reason": "A short interpretation of the score profile",
+  "strengths": ["..."],
+  "development_areas": ["..."],
+  "feedback": "A short student-facing explanation",
+  "evidence": ["..."],
+  "next_steps": ["..."]
+  ,"program_matches": [
+    {
+      "code": "BSIT",
+      "reason": "Why this program may be worth exploring",
+      "evidence": ["Relevant RIASEC scores and/or separate aptitude context"],
+      "explore": "A question or action the student can use to explore this option"
+    }
+  ]
+}
+
+Scores and program descriptions:
+{$payload}
+PROMPT;
+
+        try {
+            $response = $this->generate(
+                $prompt,
+                [
+                    'temperature' => 0.15,
+                    'max_tokens' => (int) config('services.openai.assessment_max_tokens', 1200),
+                    'schema_name' => 'assessment_profile',
+                ],
+                (string) config('services.openai.models.assessment', 'gpt-4o-mini'),
+                false,
+                [
+                    'type' => 'object',
+                    'properties' => [
+                        'reason' => ['type' => 'string'],
+                        'strengths' => ['type' => 'array', 'items' => ['type' => 'string']],
+                        'development_areas' => ['type' => 'array', 'items' => ['type' => 'string']],
+                        'feedback' => ['type' => 'string'],
+                        'evidence' => ['type' => 'array', 'items' => ['type' => 'string']],
+                        'next_steps' => ['type' => 'array', 'items' => ['type' => 'string']],
+                        'program_matches' => [
+                            'type' => 'array',
+                            'items' => [
+                                'type' => 'object',
+                                'properties' => [
+                                    'code' => ['type' => 'string'],
+                                    'reason' => ['type' => 'string'],
+                                    'evidence' => ['type' => 'array', 'items' => ['type' => 'string']],
+                                    'explore' => ['type' => 'string'],
+                                ],
+                                'required' => ['code', 'reason', 'evidence', 'explore'],
+                            ],
+                        ],
+                    ],
+                    'required' => ['reason', 'feedback', 'program_matches'],
+                ]
+            );
+
+            $data = $this->decodeJsonObject($response);
+            $matches = $this->normalizeExploratoryProgramMatches($data['program_matches'] ?? []);
+            $primaryMatch = $matches[0];
+
+            return [
+                'recommended_program' => [
+                    'code' => $primaryMatch['code'],
+                    'name' => $primaryMatch['name'],
+                ],
+                'confidence' => 0,
+                'fit_level' => 'Exploratory AI match',
+                'reason' => trim((string) ($data['reason'] ?? 'Your score profile is ready for review.')),
+                'strengths' => $this->stringList($data['strengths'] ?? [], 4, []),
+                'development_areas' => $this->stringList($data['development_areas'] ?? [], 4, []),
+                'feedback' => trim((string) ($data['feedback'] ?? 'Discuss these results with your school counselor.')),
+                'evidence' => $this->stringList($data['evidence'] ?? [], 6, []),
+                'next_steps' => $this->stringList($data['next_steps'] ?? [], 4, [
+                    'Review the score profile with a school counselor.',
+                ]),
+                'program_matches' => $matches,
+                'alternative_programs' => array_slice($matches, 1),
+                'source' => 'openai',
+                'disclaimer' => 'These AI-generated program matches are exploratory guidance, not a validated NCAE mapping, placement, admission, or prediction of academic success. Your choice is yours; discuss the profile with a counselor.',
+            ];
+        } catch (Throwable $exception) {
+            Log::warning('AI assessment profile generation failed; using a score-based profile summary.', [
+                'message' => $exception->getMessage(),
+            ]);
+
+            $topInterest = collect($scoreBreakdown['interest'] ?? [])
+                ->sortByDesc('average')
+                ->take(2)
+                ->map(fn (array $score): string => $score['label'].' interest (average '.$score['average'].' / 5)')
+                ->values()
+                ->all();
+
+            $aptitudeEvidence = collect($scoreBreakdown['aptitude'] ?? [])
+                ->map(fn (array $score): string => $score['label'].': '.$score['correct'].' of '.$score['total'].' correct')
+                ->values()
+                ->all();
+
+            return [
+                'recommended_program' => [
+                    'code' => 'PENDING',
+                    'name' => 'AI program matches are unavailable.',
+                ],
+                'confidence' => 0,
+                'fit_level' => 'Profile only',
+                'reason' => 'Your completed assessment profile is available for review. Interest and aptitude results are shown separately.',
+                'strengths' => $topInterest,
+                'development_areas' => [],
+                'feedback' => 'AI program matches could not be generated. Review your score profile with a school counselor.',
+                'evidence' => array_merge($topInterest, $aptitudeEvidence),
+                'next_steps' => ['Discuss your interests and aptitude scores with a school counselor.'],
+                'program_matches' => [],
+                'alternative_programs' => [],
+                'source' => 'fallback',
+                'disclaimer' => 'This profile is for academic guidance only and is not a program placement or admission decision. Your choice is yours.',
+            ];
+        }
+    }
+
+    /**
+     * @return array<int, array{code: string, name: string, reason: string, evidence: array<int, string>, explore: string}>
+     */
+    private function normalizeExploratoryProgramMatches(mixed $matches): array
+    {
+        if (! is_array($matches)) {
+            throw new RuntimeException('AI program matches must be an array.');
+        }
+
+        $details = collect($this->programDetails())->only(['BSAIS', 'BSIT', 'BSCS', 'BSTM', 'BSHM']);
+        $normalized = collect($matches)
+            ->filter(fn ($match): bool => is_array($match))
+            ->map(function (array $match) use ($details): ?array {
+                $code = strtoupper(trim((string) ($match['code'] ?? '')));
+
+                if (! $details->has($code)) {
+                    return null;
+                }
+
+                $reason = trim((string) ($match['reason'] ?? ''));
+                $explore = trim((string) ($match['explore'] ?? ''));
+
+                if ($reason === '' || $explore === '') {
+                    return null;
+                }
+
+                return [
+                    'code' => $code,
+                    'name' => $details[$code]['name'],
+                    'reason' => $reason,
+                    'evidence' => $this->stringList($match['evidence'] ?? [], 3, []),
+                    'explore' => $explore,
+                ];
+            })
+            ->filter()
+            ->unique('code')
+            ->take(5)
+            ->values();
+
+        if ($normalized->count() !== 5) {
+            throw new RuntimeException('AI must return one unique exploratory match for each of the five programs.');
+        }
+
+        return $normalized->all();
     }
 
     /**

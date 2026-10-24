@@ -18,9 +18,9 @@ AI Quiz Generator from Uploaded Learning Materials
 
 The AI must return:
 
-- 10 multiple choice questions
-- 5 identification questions
-- difficulty labels: `easy`, `medium`, or `hard`
+- 15 multiple choice questions for a graded quiz
+- 10 flashcards for a separate, ungraded study mode
+- a short source-grounded explanation for every MCQ answer
 - a generation confidence score from `0` to `100`
 
 The expected JSON object is:
@@ -33,30 +33,36 @@ The expected JSON object is:
       "question": "",
       "choices": ["", "", "", ""],
       "answer": "",
-      "difficulty": "easy"
+      "explanation": ""
     }
   ],
-  "identification": [
+  "flashcards": [
     {
-      "question": "",
-      "answer": "",
-      "difficulty": "medium"
+      "front": "",
+      "back": ""
     }
   ]
 }
 ```
+
+Students take the quiz before reviewing generated questions. Answer keys and explanations are
+revealed after the first completed attempt. Flashcards are studied separately and are not included
+in graded attempts. New generations do not include difficulty labels or identification questions;
+existing identification questions remain supported for historical quizzes.
 
 ## Hallucination Prevention
 
 - Prompt rule: questions and answers must come only from the uploaded document.
 - Prompt rule: unsupported questions must not be generated.
 - Strict JSON validation prevents storing vague prose responses.
-- MCQ answer validation requires the answer key to exactly match one provided choice.
+- MCQ answer validation requires the answer key to exactly match one of four distinct choices.
+- MCQ explanations and flashcard backs must be non-empty and grounded in the uploaded material.
 - Extracted text is cleaned and length-limited through configuration to fit the local model context.
 
 ## Semantic Answer Evaluation
 
-Identification answers are evaluated by Ollama with a second strict JSON prompt:
+Existing identification answers are evaluated by the answer-checking service with a second strict
+JSON prompt:
 
 ```json
 {
@@ -66,7 +72,9 @@ Identification answers are evaluated by Ollama with a second strict JSON prompt:
 }
 ```
 
-The evaluator accepts semantically equivalent answers, abbreviations, harmless word order differences, and minor grammar differences. It rejects vague, contradictory, or incomplete answers. If the local AI call fails, the service falls back to deterministic normalized matching so quiz submission can still complete.
+The evaluator accepts semantically equivalent answers, abbreviations, harmless word order
+differences, and minor grammar differences. It rejects vague, contradictory, or incomplete
+answers. New quiz generations use MCQs instead; this evaluation remains for older quizzes.
 
 ## Deployment Variables
 
@@ -99,8 +107,8 @@ model produces. The app applies these optimizations:
 - **Validated-result caching** — `QuizGeneratorService` caches validated quizzes
   keyed by model + document text (`OLLAMA_CACHE_TTL`, default 7 days, `0`
   disables). Re-uploading identical material returns instantly.
-- **Brevity-constrained prompts** — questions, choices, and identification
-  answers are length-capped in the prompt so fewer tokens are generated.
+- **Brevity-constrained prompts** — questions, choices, explanations, and flashcard content are
+  kept concise so fewer tokens are generated.
 - **Queue priority** — the worker consumes `ai` before `default`, and the dev
   script targets both queues.
 - **Warm model** — `OLLAMA_KEEP_ALIVE=30m` avoids model reloads between requests.

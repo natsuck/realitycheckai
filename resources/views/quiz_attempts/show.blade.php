@@ -8,7 +8,6 @@
                 <p class="text-sm text-ink-muted mt-1">{{ $attempt->quiz->title }} · {{ $attempt->created_at->format('M d, Y h:i A') }}</p>
             </div>
             <div class="flex gap-3 shrink-0">
-                <a href="{{ route('quiz-analytics.index') }}" class="rounded-xl border border-surface-high bg-white px-4 py-2 text-sm font-semibold text-primary-container hover:bg-surface-low transition">Analytics</a>
                 <a href="{{ route('quizzes.take', $attempt->quiz) }}" class="rounded-xl bg-accent hover:bg-accent-hover px-4 py-2 text-sm font-bold text-primary shadow-md transition-all">Retake</a>
             </div>
         </div>
@@ -42,7 +41,6 @@
                     <div class="flex flex-wrap items-center justify-between gap-3">
                         <div class="flex flex-wrap items-center gap-2">
                             <span class="rounded-full bg-surface px-3 py-1 text-xs font-semibold uppercase tracking-wide text-ink-muted">{{ $answer->question->type === 'mcq' ? 'MCQ' : 'Identification' }}</span>
-                            <span class="rounded-full bg-accent/20 px-3 py-1 text-xs font-semibold text-accent-ink">{{ ucfirst($answer->question->difficulty) }}</span>
                         </div>
                         <span @class([
                             'rounded-full px-3 py-1 text-xs font-semibold',
@@ -68,7 +66,7 @@
 
                     <div class="mt-4 rounded-xl bg-surface-low p-3 text-sm text-primary-container">
                         <div class="flex flex-wrap items-center justify-between gap-2">
-                            <span class="font-semibold">Evaluation</span>
+                            <span class="font-semibold">Explanation</span>
                             <span>{{ $answer->ai_confidence ?? 0 }}% confidence</span>
                         </div>
                         <p class="mt-2 leading-relaxed">{{ $answer->ai_explanation }}</p>

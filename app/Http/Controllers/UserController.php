@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Answer;
+use App\Models\AssessmentResult;
 use App\Models\Quiz;
 use App\Models\QuizAttempt;
 use Illuminate\Support\Facades\Auth;
@@ -15,9 +15,12 @@ class UserController extends Controller
             $userId = Auth::id();
 
             return view('dashboard', [
-                'assessmentAnswered' => Answer::query()->where('user_id', $userId)->count(),
+                'assessmentAttempts' => AssessmentResult::query()->where('user_id', $userId)->count(),
                 'quizCount' => Quiz::query()->where('user_id', $userId)->count(),
-                'readyQuizCount' => Quiz::query()->where('user_id', $userId)->where('status', Quiz::STATUS_READY)->count(),
+                'readyQuizCount' => Quiz::query()
+                    ->where('user_id', $userId)
+                    ->where('status', Quiz::STATUS_READY)
+                    ->count(),
                 'averageQuizScore' => round((float) (QuizAttempt::query()->where('user_id', $userId)->avg('score') ?? 0), 2),
                 'latestAttempts' => QuizAttempt::query()
                     ->with('quiz')

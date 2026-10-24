@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Exceptions\OpenAIRequestException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use JsonException;
@@ -13,12 +14,12 @@ class QuizGeneratorService
     public function __construct(private readonly OpenAIService $openai) {}
 
     /**
-     * @return array{mcqs: array<int, array<string, mixed>>, identification: array<int, array<string, mixed>>, confidence: float}
+     * @return array{mcqs: array<int, array{question: string, choices: array<int, string>, answer: string, explanation: string}>, flashcards: array<int, array{front: string, back: string}>, confidence: float}
      */
     public function generate(string $documentText): array
     {
         $attempts = (int) config('services.openai.quiz_json_retries', 3);
-        $numPredict = (int) config('services.openai.quiz_max_tokens', 2500);
+        $numPredict = (int) config('services.openai.quiz_max_tokens', 6000);
         $model = (string) config('services.openai.models.quiz', 'gpt-4o-mini');
         $cacheKey = $this->cacheKey($documentText, $numPredict, $model);
         $prompt = $this->buildPrompt($documentText);
@@ -54,6 +55,13 @@ class QuizGeneratorService
                 $this->cacheQuiz($cacheKey, $validated);
 
                 return $validated;
+            } catch (OpenAIRequestException $exception) {
+                Log::error('AI quiz generation could not reach the configured provider.', [
+                    'attempt' => $attempt,
+                    'message' => $exception->getMessage(),
+                ]);
+
+                throw $exception;
             } catch (Throwable $exception) {
                 $lastError = $exception->getMessage();
 
@@ -77,7 +85,7 @@ class QuizGeneratorService
      */
     private function cacheKey(string $documentText, int $numPredict, string $model): string
     {
-        return 'quiz_gen:'.hash('sha256', $model.'|0.1|'.$numPredict.'|'.$documentText);
+        return 'quiz_gen:mcq-flashcards-v2:'.hash('sha256', $model.'|0.1|'.$numPredict.'|'.$documentText);
     }
 
     private function cacheQuiz(string $cacheKey, array $quiz): void
@@ -92,10 +100,8 @@ class QuizGeneratorService
     }
 
     /**
-     * JSON schema for OpenAI structured outputs. Enforces exact counts
-     * (10 MCQs, 5 identification items), 4 choices per MCQ, and the
-     * difficulty enum at decode time so malformed responses are nearly
-     * impossible and validation retries almost never trigger.
+     * JSON schema for OpenAI structured outputs. Enforces exact counts,
+     * four choices per MCQ, and separate flashcard front/back content.
      *
      * @return array<string, mixed>
      */
@@ -112,25 +118,18 @@ class QuizGeneratorService
                     'items' => ['type' => 'string'],
                 ],
                 'answer' => ['type' => 'string'],
-                'difficulty' => [
-                    'type' => 'string',
-                    'enum' => ['easy', 'medium', 'hard'],
-                ],
+                'explanation' => ['type' => 'string'],
             ],
-            'required' => ['question', 'choices', 'answer', 'difficulty'],
+            'required' => ['question', 'choices', 'answer', 'explanation'],
         ];
 
-        $identificationItem = [
+        $flashcardItem = [
             'type' => 'object',
             'properties' => [
-                'question' => ['type' => 'string'],
-                'answer' => ['type' => 'string'],
-                'difficulty' => [
-                    'type' => 'string',
-                    'enum' => ['easy', 'medium', 'hard'],
-                ],
+                'front' => ['type' => 'string'],
+                'back' => ['type' => 'string'],
             ],
-            'required' => ['question', 'answer', 'difficulty'],
+            'required' => ['front', 'back'],
         ];
 
         return [
@@ -139,18 +138,18 @@ class QuizGeneratorService
                 'confidence' => ['type' => 'number'],
                 'mcqs' => [
                     'type' => 'array',
-                    'minItems' => 10,
-                    'maxItems' => 10,
+                    'minItems' => 15,
+                    'maxItems' => 15,
                     'items' => $mcqItem,
                 ],
-                'identification' => [
+                'flashcards' => [
                     'type' => 'array',
-                    'minItems' => 5,
-                    'maxItems' => 5,
-                    'items' => $identificationItem,
+                    'minItems' => 10,
+                    'maxItems' => 10,
+                    'items' => $flashcardItem,
                 ],
             ],
-            'required' => ['mcqs', 'identification'],
+            'required' => ['mcqs', 'flashcards'],
         ];
     }
 
@@ -160,21 +159,23 @@ class QuizGeneratorService
 You are an academic quiz generator for a thesis-grade education system.
 
 Generate exactly:
-- 10 multiple choice questions
-- 5 identification questions
+- 15 multiple choice questions for a graded quiz
+- 10 flashcards for a separate study mode
 
 Rules:
 - Questions and answers must come ONLY from the provided document.
 - Do not use outside knowledge.
-- Avoid hallucinations. If the document does not support a question, do not ask it.
-- Mix easy, medium, and hard difficulty.
+- The exact item counts above are mandatory; never return fewer items.
+- If the document is concise, test different details or aspects that it explicitly supports, without adding outside facts.
 - MCQ choices must contain exactly 4 clear choices.
 - The MCQ answer must exactly match one of the choices.
-- Identification answers must be concise exact answers from the document.
-- Keep every question under 20 words.
-- Keep every MCQ choice under 10 words.
-- Keep identification answers between 1 and 5 words.
-- Never include explanations, notes, or extra fields. Short answers only.
+- Include a brief explanation grounded in the document for every MCQ answer.
+- Each flashcard front should ask about one important concept; its back should provide a concise answer.
+- Do not repeat questions or flashcard fronts.
+- Flashcards should reinforce the document without copying an MCQ word-for-word.
+- Keep questions and flashcard fronts under 25 words.
+- Keep every MCQ choice concise and unambiguous.
+- Never include difficulty labels or extra fields.
 - Return STRICT JSON only. Do not include Markdown, prose, comments, or code fences.
 
 Required JSON shape:
@@ -185,14 +186,13 @@ Required JSON shape:
       "question": "",
       "choices": ["", "", "", ""],
       "answer": "",
-      "difficulty": "easy"
+      "explanation": ""
     }
   ],
-  "identification": [
+  "flashcards": [
     {
-      "question": "",
-      "answer": "",
-      "difficulty": "medium"
+      "front": "",
+      "back": ""
     }
   ]
 }
@@ -216,11 +216,11 @@ Invalid response preview:
 {$preview}
 
 Regenerate the quiz using ONLY the document below.
-Return STRICT JSON only with exactly 10 MCQs and 5 identification questions.
-Every MCQ answer must exactly match one of its four choices.
-Each question must include difficulty as easy, medium, or hard.
-Keep questions under 20 words, choices under 10 words, and identification answers between 1 and 5 words.
-Do not include explanations or any extra fields.
+Return STRICT JSON only with exactly 15 MCQs and exactly 10 flashcards. These counts are mandatory; do not return fewer items.
+Every MCQ answer must exactly match one of its four choices and include a short document-grounded explanation.
+Each flashcard must include a concise front and back.
+If the document is concise, test different explicitly stated details or aspects rather than omitting items or adding outside facts.
+Do not include difficulty labels, identification questions, or any extra fields.
 
 DOCUMENT:
 {$documentText}
@@ -261,30 +261,46 @@ PROMPT;
 
     /**
      * @param  array<string, mixed>  $data
-     * @return array{mcqs: array<int, array<string, mixed>>, identification: array<int, array<string, mixed>>, confidence: float}
+     * @return array{mcqs: array<int, array{question: string, choices: array<int, string>, answer: string, explanation: string}>, flashcards: array<int, array{front: string, back: string}>, confidence: float}
      */
     private function validate(array $data): array
     {
-        if (! isset($data['mcqs'], $data['identification']) || ! is_array($data['mcqs']) || ! is_array($data['identification'])) {
-            throw new RuntimeException('Quiz JSON must include mcqs and identification arrays.');
+        if (! isset($data['mcqs'], $data['flashcards']) || ! is_array($data['mcqs']) || ! is_array($data['flashcards'])) {
+            throw new RuntimeException('Quiz JSON must include mcqs and flashcards arrays.');
         }
 
-        if (count($data['mcqs']) !== 10 || count($data['identification']) !== 5) {
-            throw new RuntimeException('Quiz JSON must contain exactly 10 MCQs and 5 identification questions.');
+        if (count($data['mcqs']) !== 15 || count($data['flashcards']) !== 10) {
+            throw new RuntimeException(sprintf(
+                'Quiz JSON must contain exactly 15 MCQs and 10 flashcards; received %d MCQs and %d flashcards.',
+                count($data['mcqs']),
+                count($data['flashcards'])
+            ));
         }
 
         $mcqs = [];
+        $questionTexts = [];
 
-        foreach (array_values($data['mcqs']) as $index => $mcq) {
+        foreach (array_values($data['mcqs']) as $mcq) {
             if (! is_array($mcq)) {
                 throw new RuntimeException('Each MCQ must be an object.');
             }
 
             $question = $this->requiredString($mcq['question'] ?? null, 'MCQ question');
+            $normalizedQuestion = $this->normalize($question);
+
+            if (isset($questionTexts[$normalizedQuestion])) {
+                throw new RuntimeException('MCQ questions must be distinct.');
+            }
+
+            $questionTexts[$normalizedQuestion] = true;
             $choices = array_values(array_filter(array_map('trim', $mcq['choices'] ?? [])));
 
             if (count($choices) !== 4) {
                 throw new RuntimeException('Each MCQ must include exactly 4 choices.');
+            }
+
+            if (count(array_unique(array_map($this->normalize(...), $choices))) !== 4) {
+                throw new RuntimeException('Each MCQ must include four distinct choices.');
             }
 
             $answer = $this->normalizeMcqAnswer($mcq['answer'] ?? '', $choices);
@@ -293,28 +309,36 @@ PROMPT;
                 'question' => $question,
                 'choices' => $choices,
                 'answer' => $answer,
-                'difficulty' => $this->difficulty($mcq['difficulty'] ?? null, $index),
+                'explanation' => $this->requiredString($mcq['explanation'] ?? null, 'MCQ explanation'),
             ];
         }
 
-        $identification = [];
+        $flashcards = [];
+        $flashcardFronts = [];
 
-        foreach (array_values($data['identification']) as $index => $item) {
+        foreach (array_values($data['flashcards']) as $item) {
             if (! is_array($item)) {
-                throw new RuntimeException('Each identification question must be an object.');
+                throw new RuntimeException('Each flashcard must be an object.');
             }
 
-            $identification[] = [
-                'question' => $this->requiredString($item['question'] ?? null, 'Identification question'),
-                'answer' => $this->requiredString($item['answer'] ?? null, 'Identification answer'),
-                'difficulty' => $this->difficulty($item['difficulty'] ?? null, $index + 10),
+            $front = $this->requiredString($item['front'] ?? null, 'Flashcard front');
+            $normalizedFront = $this->normalize($front);
+
+            if (isset($flashcardFronts[$normalizedFront])) {
+                throw new RuntimeException('Flashcard fronts must be distinct.');
+            }
+
+            $flashcardFronts[$normalizedFront] = true;
+            $flashcards[] = [
+                'front' => $front,
+                'back' => $this->requiredString($item['back'] ?? null, 'Flashcard back'),
             ];
         }
 
         return [
             'confidence' => $this->confidence($data['confidence'] ?? 85),
             'mcqs' => $mcqs,
-            'identification' => $identification,
+            'flashcards' => $flashcards,
         ];
     }
 
@@ -347,17 +371,6 @@ PROMPT;
         }
 
         throw new RuntimeException('MCQ answer must exactly match one of the choices.');
-    }
-
-    private function difficulty(mixed $value, int $index): string
-    {
-        $value = strtolower(trim((string) $value));
-
-        if (in_array($value, ['easy', 'medium', 'hard'], true)) {
-            return $value;
-        }
-
-        return ['easy', 'medium', 'hard'][$index % 3];
     }
 
     private function confidence(mixed $value): float

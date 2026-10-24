@@ -86,7 +86,7 @@
             <div>
                 <div class="flex items-center gap-2 mb-1.5">
                     <span class="text-xs uppercase font-bold tracking-wider px-2.5 py-0.5 rounded-full bg-accent/20 text-accent-ink border border-accent/40">
-                        Verified {{ config('app.name', 'Gabay') }} Assessment
+                        {{ $isVersionedResult ? 'Exploratory AI Guidance' : 'Verified '.config('app.name', 'Gabay').' Assessment' }}
                     </span>
                     @if ($completedAt)
                         <span class="text-xs text-ink-faint">Completed {{ $completedAt }}</span>
@@ -104,11 +104,15 @@
                 </div>
 
                 <h1 class="font-headline text-2xl sm:text-3xl md:text-4xl font-bold text-primary">
-                    Your Personality Profile &amp; Career Insights.
+                    {{ $isVersionedResult ? 'Your Career Interest and Aptitude Profile' : 'Your Personality Profile & Career Insights.' }}
                 </h1>
                 <p class="text-sm sm:text-base text-ink-muted max-w-3xl mt-1 leading-relaxed">
-                    Based on your recent assessment, we've compiled a comprehensive overview of your strengths,
-                    working style, and ideal career paths to help guide your academic journey in the Philippines.
+                    @if ($isVersionedResult)
+                        Your RIASEC interests and scholastic aptitude scores are shown separately. Program suggestions below are AI-generated possibilities based on your scores and the program descriptions; they are not an approved or validated NCAE mapping.
+                    @else
+                        Based on your recent assessment, we've compiled a comprehensive overview of your strengths,
+                        working style, and ideal career paths to help guide your academic journey in the Philippines.
+                    @endif
                 </p>
             </div>
 
@@ -141,12 +145,124 @@
                                 <li>{{ $flagLabels[$flag] ?? ucfirst(str_replace('_', ' ', $flag)) }}</li>
                             @endforeach
                         </ul>
-                        <p class="mt-1 text-xs">Consider retaking the assessment for a more reliable recommendation.</p>
+                        <p class="mt-1 text-xs">Consider reviewing your answers with a school counselor.</p>
                     </div>
                 </div>
             </section>
         @endif
 
+        @if ($isVersionedResult)
+            @if ($scoreBreakdown)
+            <section class="rounded-2xl border border-amber-200 bg-amber-50 p-4 sm:p-5 text-sm text-amber-900">
+                <p class="font-bold">Exploratory suggestions—not a placement decision</p>
+                <p class="mt-1">These AI-generated matches are not a validated NCAE score-to-program mapping or a prediction of academic success. They do not assign or dictate your choice. Your interests, goals, and decision come first; discuss the profile with a counselor.</p>
+            </section>
+
+            <section class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div class="card p-6 sm:p-8">
+                    <h2 class="font-headline text-lg sm:text-xl font-bold text-primary mb-4">Career Interest Inventory (RIASEC)</h2>
+                    <p class="text-xs text-ink-muted mb-4">Each scale contains 15 items rated from 1 to 5. Scores are your item averages, not a comparison with other students.</p>
+                    <div class="space-y-3">
+                        @foreach ($scoreBreakdown['interest'] as $score)
+                            <div>
+                                <div class="flex justify-between gap-2 text-sm mb-1">
+                                    <span class="font-semibold text-primary">{{ $score['label'] }}</span>
+                                    <span class="text-ink-muted">{{ number_format((float) $score['average'], 2) }} / 5</span>
+                                </div>
+                                <div class="h-2 rounded-full bg-surface-low overflow-hidden">
+                                    <div class="h-full rounded-full bg-primary-container" style="width: {{ min(100, max(0, (float) $score['percentage'])) }}%"></div>
+                                </div>
+                            </div>
+                        @endforeach
+                    </div>
+                </div>
+
+                <div class="card p-6 sm:p-8">
+                    <h2 class="font-headline text-lg sm:text-xl font-bold text-primary mb-4">Scholastic Aptitude</h2>
+                    <p class="text-xs text-ink-muted mb-4">Each section shows the number and percentage of correct answers. These results are reported separately from career interests.</p>
+                    <div class="space-y-4">
+                        @foreach ($scoreBreakdown['aptitude'] as $score)
+                            <div class="rounded-xl border border-surface-high p-4">
+                                <div class="flex items-start justify-between gap-3">
+                                    <span class="font-semibold text-primary">{{ $score['label'] }}</span>
+                                    <span class="font-bold text-primary-container">{{ $score['correct'] }} / {{ $score['total'] }}</span>
+                                </div>
+                                <div class="mt-2 h-2 rounded-full bg-surface-low overflow-hidden">
+                                    <div class="h-full rounded-full bg-accent" style="width: {{ min(100, max(0, (float) $score['percentage'])) }}%"></div>
+                                </div>
+                                <p class="mt-1 text-right text-xs text-ink-muted">{{ number_format((float) $score['percentage'], 0) }}% correct</p>
+                            </div>
+                        @endforeach
+                    </div>
+                </div>
+            </section>
+
+            <section class="card p-6 sm:p-8 flex flex-col gap-4">
+                <div class="flex items-center gap-2.5 text-primary">
+                    <div class="p-2 rounded-lg bg-surface-low text-primary-container">
+                        <x-icon name="brain" class="w-5 h-5"/>
+                    </div>
+                    <h2 class="font-headline text-xl sm:text-2xl font-bold">AI Profile Explanation</h2>
+                </div>
+                <p class="text-sm sm:text-base text-ink-muted leading-relaxed">{{ $traitSummary }}</p>
+                @if (! empty($aiFeedback['strengths']))
+                    <div>
+                        <h3 class="text-sm font-bold text-primary mb-2">Evidence-based observations</h3>
+                        <ul class="list-disc list-inside space-y-1 text-sm text-ink-muted">
+                            @foreach ($aiFeedback['strengths'] as $strength)
+                                <li>{{ $strength }}</li>
+                            @endforeach
+                        </ul>
+                    </div>
+                @endif
+            </section>
+
+            <section class="card p-6 sm:p-8">
+                <div class="flex flex-col sm:flex-row sm:items-end justify-between gap-2 mb-5">
+                    <div>
+                        <h2 class="font-headline text-lg sm:text-xl font-bold text-primary">Programs to Explore</h2>
+                        <p class="text-xs text-ink-muted mt-1">Ranked AI suggestions based on your profile—not a required or definitive choice.</p>
+                    </div>
+                    <span class="text-[11px] font-semibold text-amber-800 bg-amber-50 border border-amber-200 rounded-full px-3 py-1">Exploratory; not school-validated</span>
+                </div>
+                @if (! empty($aiFeedback['program_matches']))
+                    <p class="mb-4 rounded-xl border border-accent/30 bg-accent/10 p-3 text-sm text-accent-ink">
+                        <strong>AI-generated program mapping.</strong> The AI ranks these programs using your RIASEC profile, separate aptitude results, and the program descriptions. This is an exploratory suggestion—not a validated placement, admission decision, or instruction. Your choice comes first.
+                    </p>
+                    <div class="space-y-3">
+                        @foreach ($aiFeedback['program_matches'] as $index => $match)
+                            <article class="rounded-xl border border-surface-high p-4">
+                                <div class="flex flex-col sm:flex-row sm:items-start justify-between gap-2">
+                                    <h3 class="font-semibold text-primary">
+                                        <span class="text-ink-faint mr-1">{{ $index + 1 }}.</span>
+                                        {{ $match['name'] }}
+                                    </h3>
+                                    <span class="shrink-0 text-[10px] uppercase font-bold tracking-wide text-amber-800">AI-ranked possibility</span>
+                                </div>
+                                <p class="text-sm text-ink-muted mt-2">{{ $match['reason'] }}</p>
+                                @if (! empty($match['evidence']))
+                                    <ul class="list-disc list-inside text-xs text-ink-muted mt-2 space-y-1">
+                                        @foreach ($match['evidence'] as $evidence)
+                                            <li>{{ $evidence }}</li>
+                                        @endforeach
+                                    </ul>
+                                @endif
+                                @if (! empty($match['explore']))
+                                    <p class="text-xs text-primary-container mt-3"><span class="font-bold">Explore:</span> {{ $match['explore'] }}</p>
+                                @endif
+                            </article>
+                        @endforeach
+                    </div>
+                @else
+                    <p class="text-sm text-ink-muted">AI program suggestions are unavailable for this attempt. Your score profile is still available to discuss with a counselor.</p>
+                @endif
+            </section>
+            @else
+                <section class="rounded-2xl border border-rose-200 bg-rose-50 p-4 sm:p-5 text-sm text-rose-900">
+                    The saved score profile is unavailable. Please contact your school counselor for assistance.
+                </section>
+            @endif
+        @else
         {{-- Bento: AI Trait Analysis + Aptitude --}}
         <section class="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div class="md:col-span-2 card p-6 sm:p-8 flex flex-col gap-4 relative overflow-hidden group hover:shadow-ambient-lg transition-shadow">
@@ -379,6 +495,7 @@
                 </a>
             </div>
         </section>
+        @endif
 
         {{-- Next steps + disclaimer --}}
         <section class="card p-6 sm:p-8 flex flex-col gap-4">
@@ -436,9 +553,15 @@
                                     </span>
                                 @endif
 
-                                <span class="px-2.5 py-1 rounded-full bg-primary-container text-white text-xs font-bold">
-                                    {{ number_format((float) $past->confidence, 0) }}% conf.
-                                </span>
+                                @if ($past->instrument_version)
+                                    <span class="px-2.5 py-1 rounded-full bg-surface-low text-primary-container text-xs font-bold">
+                                        Score profile
+                                    </span>
+                                @else
+                                    <span class="px-2.5 py-1 rounded-full bg-primary-container text-white text-xs font-bold">
+                                        {{ number_format((float) $past->confidence, 0) }}% conf.
+                                    </span>
+                                @endif
                             </div>
                         </div>
                     @endforeach
@@ -454,4 +577,14 @@
             window.addEventListener('load', () => window.gabayConfetti && window.gabayConfetti());
         </script>
     @endonce
+@endif
+
+@if ($isVersionedResult)
+    <script>
+        try {
+            sessionStorage.removeItem(@js('aguhon-assessment-'.\App\Models\Question::CURRENT_INSTRUMENT_VERSION.'-'.auth()->id()));
+        } catch (error) {
+            // Session storage may be unavailable; the completed result is unaffected.
+        }
+    </script>
 @endif

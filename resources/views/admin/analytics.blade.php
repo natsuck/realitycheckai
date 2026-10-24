@@ -41,8 +41,8 @@
                 <div class="card p-5 sm:p-6 flex items-start justify-between">
                     <div>
                         <p class="text-xs font-semibold text-ink-muted mb-1">Avg. Confidence</p>
-                        <p class="font-headline text-3xl sm:text-4xl font-bold text-primary">{{ number_format($avgConfidence, 1) }}%</p>
-                        <p class="text-xs text-ink-faint mt-2 leading-relaxed">LLM self-report, not calibrated.</p>
+                        <p class="font-headline text-3xl sm:text-4xl font-bold text-primary">{{ $avgConfidence === null ? 'N/A' : number_format($avgConfidence, 1).'%' }}</p>
+                        <p class="text-xs text-ink-faint mt-2 leading-relaxed">Legacy model self-report only; not calibrated and not available for current assessment mappings.</p>
                     </div>
                     <div class="p-3 bg-surface-low rounded-xl text-primary">
                         <x-icon name="award" class="w-6 h-6"/>
@@ -70,7 +70,7 @@
                         <x-icon name="trending-up" class="w-5 h-5 text-primary-container"/>
                         <h4 class="font-headline text-lg font-bold text-primary">Top Matched Programs</h4>
                     </div>
-                    <p class="text-xs text-ink-faint mb-4">Distribution of recommendations across all submissions.</p>
+                    <p class="text-xs text-ink-faint mb-4">Distribution of primary AI suggestions across legacy and current assessment submissions. Suggestions are advisory, not placement decisions.</p>
 
                     <div class="space-y-3 mt-4">
                         @forelse ($programBreakdown as $row)

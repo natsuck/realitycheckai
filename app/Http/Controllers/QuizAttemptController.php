@@ -10,34 +10,106 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 
 class QuizAttemptController extends Controller
 {
-    public function create(Quiz $quiz): View
+    public function create(Quiz $quiz): View|RedirectResponse
     {
         $this->authorizeQuizOwner($quiz);
-        abort_unless($quiz->isReady(), 409, 'Quiz is still being generated.');
 
-        $quiz->load(['questions' => fn ($query) => $query->orderBy('id')]);
+        if (! $quiz->isReady()) {
+            return redirect()
+                ->route('quizzes.show', $quiz)
+                ->with('status', 'This quiz is still being generated. You can take it after generation is complete.');
+        }
+
+        $questions = $quiz->questions()->orderBy('id')->get();
+        $hasCompletedAttempt = QuizAttempt::query()
+            ->where('quiz_id', $quiz->id)
+            ->where('user_id', Auth::id())
+            ->exists();
+
+        if ($hasCompletedAttempt) {
+            $orderKey = 'quiz_attempt_order_'.$quiz->id;
+            $questionIds = $questions->modelKeys();
+            $savedOrder = session($orderKey);
+
+            if (! is_array($savedOrder)
+                || count($savedOrder) !== count($questionIds)
+                || array_diff($questionIds, $savedOrder) !== []
+                || array_diff($savedOrder, $questionIds) !== []) {
+                $savedOrder = $questions->shuffle()->modelKeys();
+                session([$orderKey => $savedOrder]);
+            }
+
+            $questionsById = $questions->keyBy('id');
+            $questions = collect($savedOrder)
+                ->map(fn (int $questionId) => $questionsById->get($questionId))
+                ->values();
+        } else {
+            session()->forget('quiz_attempt_order_'.$quiz->id);
+        }
+
+        $quiz->setRelation('questions', $questions);
 
         // Roughly 90 seconds per question, never shorter than 10 minutes.
         $timeLimitMinutes = max(10, (int) ceil($quiz->questions->count() * 90 / 60));
+        $attemptStartKey = 'quiz_attempt_started_at_'.$quiz->id;
+        if (! session()->has($attemptStartKey)) {
+            session([$attemptStartKey => now()->timestamp]);
+        }
+        $secondsRemaining = max(
+            0,
+            ($timeLimitMinutes * 60) - (now()->timestamp - (int) session($attemptStartKey))
+        );
 
-        return view('quiz_attempts.create', compact('quiz', 'timeLimitMinutes'));
+        return view('quiz_attempts.create', compact('quiz', 'timeLimitMinutes', 'secondsRemaining'));
     }
 
     public function store(Request $request, Quiz $quiz, AnswerEvaluationService $evaluator): RedirectResponse
     {
         $this->authorizeQuizOwner($quiz);
-        abort_unless($quiz->isReady(), 409, 'Quiz is still being generated.');
 
-        $validated = $request->validate([
-            'answers' => ['required', 'array'],
-            'answers.*' => ['nullable', 'string', 'max:2000'],
-        ]);
+        if (! $quiz->isReady()) {
+            return redirect()
+                ->route('quizzes.show', $quiz)
+                ->with('status', 'This quiz is still being generated.');
+        }
 
         $questions = $quiz->questions()->orderBy('id')->get();
+        $attemptStartKey = 'quiz_attempt_started_at_'.$quiz->id;
+        $startedAt = session($attemptStartKey);
+        if (! is_numeric($startedAt) || (int) $startedAt > now()->timestamp) {
+            session()->forget($attemptStartKey);
+
+            return redirect()
+                ->route('quizzes.take', $quiz)
+                ->with('status', 'Start the quiz before submitting your answers.');
+        }
+
+        $timeLimitMinutes = max(10, (int) ceil($questions->count() * 90 / 60));
+        $timedOut = now()->timestamp - (int) $startedAt >= $timeLimitMinutes * 60;
+        $rules = [
+            'answers' => [$timedOut ? 'sometimes' : 'required', 'array'],
+            'answers.*' => ['nullable', 'string', 'max:2000'],
+        ];
+
+        foreach ($questions as $question) {
+            $answerRules = [$timedOut ? 'nullable' : 'required', 'string', 'max:2000'];
+            if ($question->isMcq()) {
+                $answerRules[] = Rule::in($question->choices ?? []);
+            }
+
+            $rules['answers.'.$question->id] = $answerRules;
+        }
+
+        $validated = $request->validate($rules, [
+            'answers.*.required' => 'Please answer every question before submitting.',
+            'answers.*.in' => 'Please select one of the available choices.',
+        ]);
+
         $answers = $validated['answers'] ?? [];
         $answerRows = [];
         $correctCount = 0;
@@ -67,8 +139,8 @@ class QuizAttemptController extends Controller
             if ($question->isMcq()) {
                 $isCorrect = $this->normalize($userAnswer) === $this->normalize($question->correct_answer);
                 $explanation = $isCorrect
-                    ? 'MCQ answer matched the answer key.'
-                    : 'MCQ answer did not match the answer key.';
+                    ? ($question->explanation ?: 'Your answer matched the answer key.')
+                    : ($question->explanation ?: 'Your answer did not match the answer key.');
                 $confidence = 100.0;
 
                 if ($isCorrect) {
@@ -106,7 +178,7 @@ class QuizAttemptController extends Controller
             ? round(array_sum($aiConfidences) / count($aiConfidences), 2)
             : 100.0;
 
-        $attempt = DB::transaction(function () use ($quiz, $score, $totalQuestions, $correctCount, $mcqScore, $identificationScore, $averageAiConfidence, $answerRows): QuizAttempt {
+        $attempt = DB::transaction(function () use ($quiz, $questions, $score, $totalQuestions, $correctCount, $mcqScore, $identificationScore, $averageAiConfidence, $answerRows, $startedAt): QuizAttempt {
             $attempt = QuizAttempt::query()->create([
                 'user_id' => Auth::id(),
                 'quiz_id' => $quiz->id,
@@ -123,7 +195,7 @@ class QuizAttemptController extends Controller
                     $questions->where('type', 'mcq')->count(),
                     $questions->count() - $questions->where('type', 'mcq')->count()
                 ),
-                'started_at' => now(),
+                'started_at' => now()->setTimestamp((int) $startedAt),
                 'completed_at' => now(),
             ]);
 
@@ -133,6 +205,9 @@ class QuizAttemptController extends Controller
 
             return $attempt;
         });
+
+        session()->forget('quiz_attempt_order_'.$quiz->id);
+        session()->forget($attemptStartKey);
 
         return redirect()->route('quiz-attempts.show', $attempt);
     }
@@ -176,7 +251,12 @@ class QuizAttemptController extends Controller
             default => 'Needs review. Study the key terms and main ideas from the uploaded material before retaking the quiz.',
         };
 
-        return $base.' MCQ correct: '.$mcqScore.'/'.$mcqTotal.
-            '. Identification correct: '.$identificationScore.'/'.$identificationTotal.'.';
+        $typeFeedback = ' MCQ correct: '.$mcqScore.'/'.$mcqTotal.'.';
+
+        if ($identificationTotal > 0) {
+            $typeFeedback .= ' Identification correct: '.$identificationScore.'/'.$identificationTotal.'.';
+        }
+
+        return $base.$typeFeedback;
     }
 }

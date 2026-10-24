@@ -4,7 +4,6 @@ use App\Http\Controllers\Admin\ResourceController as AdminResourceController;
 use App\Http\Controllers\AdminAnalyticsController;
 use App\Http\Controllers\AssessmentController;
 use App\Http\Controllers\ProfileController;
-use App\Http\Controllers\QuizAnalyticsController;
 use App\Http\Controllers\QuizAttemptController;
 use App\Http\Controllers\QuizController;
 use App\Http\Controllers\ResourceController;
@@ -48,12 +47,11 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/quizzes/{quiz}/status', [QuizController::class, 'status'])->name('quizzes.status');
     Route::get('/quizzes/{quiz}/material', [QuizController::class, 'downloadMaterial'])->name('quizzes.material');
     Route::post('/quizzes/{quiz}/retry', [QuizController::class, 'retry'])->name('quizzes.retry');
+    Route::get('/quizzes/{quiz}/flashcards', [QuizController::class, 'flashcards'])->name('quizzes.flashcards');
     Route::delete('/quizzes/{quiz}', [QuizController::class, 'destroy'])->name('quizzes.destroy');
     Route::get('/quizzes/{quiz}/take', [QuizAttemptController::class, 'create'])->name('quizzes.take');
     Route::post('/quizzes/{quiz}/attempts', [QuizAttemptController::class, 'store'])->name('quizzes.attempts.store');
     Route::get('/quiz-attempts/{quizAttempt}', [QuizAttemptController::class, 'show'])->name('quiz-attempts.show');
-    Route::get('/quiz-analytics', [QuizAnalyticsController::class, 'index'])->name('quiz-analytics.index');
-
     // Admin panel
     Route::prefix('admin')->name('admin.')->middleware('admin')->group(function () {
         Route::get('/analytics', [AdminAnalyticsController::class, 'index'])->name('analytics');

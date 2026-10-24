@@ -21,7 +21,7 @@ class QuizQuestion extends Model
         'question',
         'choices',
         'correct_answer',
-        'difficulty',
+        'explanation',
     ];
 
     protected function casts(): array

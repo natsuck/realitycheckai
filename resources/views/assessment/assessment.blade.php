@@ -1,24 +1,8 @@
-@php
-    $likertLabels = [
-        1 => 'Strongly Disagree',
-        2 => 'Disagree',
-        3 => 'Neutral',
-        4 => 'Agree',
-        5 => 'Strongly Agree',
-    ];
-
-    $wizardQuestions = $questions->values()->map(fn ($question) => [
-        'id' => $question->id,
-        'text' => $question->question_text,
-        'label' => $categoryLabels[$question->category] ?? ucfirst((string) $question->category),
-    ])->all();
-@endphp
-
 <x-app-layout>
     <div x-data="assessmentWizard({{ \Illuminate\Support\Js::from([
         'total' => count($wizardQuestions),
         'questions' => $wizardQuestions,
-        'storageKey' => 'aguhon-assessment-'.auth()->id(),
+        'storageKey' => 'aguhon-assessment-'.\App\Models\Question::CURRENT_INSTRUMENT_VERSION.'-'.auth()->id(),
     ]) }})"
          class="flex-grow flex flex-col items-center justify-between w-full relative min-h-[calc(100vh-4rem)]">
 
@@ -44,7 +28,13 @@
             @else
                 @if ($errors->any())
                     <div class="mb-6 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800 shadow-ambient">
-                        Please answer every assessment item before submitting.
+                        <p class="font-semibold">We couldn't submit your assessment:</p>
+                        <ul class="mt-1 list-disc list-inside">
+                            @foreach ($errors->all() as $error)
+                                <li>{{ $error }}</li>
+                            @endforeach
+                        </ul>
+                        <p class="mt-1 text-xs">Your saved answers are still available. Review the item(s) above and try again.</p>
                     </div>
                 @endif
 
@@ -54,8 +44,11 @@
                         Question <span x-text="current + 1"></span> of <span x-text="total"></span>
                     </span>
 
-                    <div class="bg-surface-low px-3 py-1 rounded-full border border-surface-high">
-                        <span class="text-xs font-semibold text-primary-container" x-text="questions[current].label"></span>
+                    <div class="flex flex-col items-end gap-1">
+                        <span class="text-[10px] sm:text-xs text-ink-faint" x-text="questions[current].section"></span>
+                        <div class="bg-surface-low px-3 py-1 rounded-full border border-surface-high">
+                            <span class="text-xs font-semibold text-primary-container" x-text="questions[current].label"></span>
+                        </div>
                     </div>
                 </div>
 
@@ -76,31 +69,38 @@
                                 "<span x-text="questions[current].text"></span>"
                             </h2>
                             <p class="text-xs sm:text-sm text-ink-muted mt-2">
-                                Select the option that best reflects your natural instinct or academic behavior.
+                                <span x-show="questions[current].type === 'likert'">Rate how much you would enjoy the activity, regardless of salary, prestige, or difficulty.</span>
+                                <span x-show="questions[current].type === 'multiple_choice'">Select the best answer.</span>
                             </p>
                         </div>
 
-                        {{-- Likert Scale --}}
-                        <div class="grid grid-cols-1 sm:grid-cols-5 gap-2.5 sm:gap-2 w-full pt-2">
-                            @for ($i = 1; $i <= 5; $i++)
+                        <div class="grid grid-cols-1 gap-2.5 sm:gap-2 w-full pt-2"
+                             :class="questions[current].type === 'likert' ? 'sm:grid-cols-5' : 'sm:grid-cols-1'">
+                            <template x-for="option in questions[current].options" :key="option.value">
                                 <button
                                     type="button"
-                                    @click="select(questions[current].id, {{ $i }}); $event.currentTarget.blur()"
-                                    class="relative p-4 rounded-xl border text-center transition-all duration-200 cursor-pointer flex sm:flex-col items-center justify-between sm:justify-center gap-2 min-h-[64px] sm:min-h-[100px]"
-                                    :class="answers[questions[current].id] === {{ $i }}
+                                    @click="select(questions[current].id, option.value); $event.currentTarget.blur()"
+                                    class="relative p-4 rounded-xl border text-left sm:text-center transition-all duration-200 cursor-pointer flex items-center justify-between sm:justify-center gap-3 min-h-[64px]"
+                                    :class="[
+                                        questions[current].type === 'likert' ? 'sm:flex-col sm:min-h-[100px]' : '',
+                                        answers[questions[current].id] === option.value
                                         ? 'bg-primary-container border-primary-container text-white shadow-md transform sm:-translate-y-1'
-                                        : 'bg-white border-slate-300 hover:bg-surface-low text-ink hover:border-primary-container/40'"
+                                        : 'bg-white border-slate-300 hover:bg-surface-low text-ink hover:border-primary-container/40'
+                                    ]"
                                 >
-                                    <span class="text-xs sm:text-sm font-semibold">{{ $likertLabels[$i] }}</span>
+                                    <span class="text-xs sm:text-sm font-semibold">
+                                        <span x-show="questions[current].type === 'multiple_choice'" x-text="option.label + '. '"></span>
+                                        <span x-text="option.text"></span>
+                                    </span>
 
                                     <div
                                         class="w-5 h-5 rounded-full border flex items-center justify-center shrink-0"
-                                        :class="answers[questions[current].id] === {{ $i }} ? 'border-accent bg-accent text-primary' : 'border-slate-300 bg-white'"
+                                        :class="answers[questions[current].id] === option.value ? 'border-accent bg-accent text-primary' : 'border-slate-300 bg-white'"
                                     >
-                                        <x-icon name="check" class="w-3.5 h-3.5 stroke-[3]" x-show="answers[questions[current].id] === {{ $i }}" style="display:none"/>
+                                        <x-icon name="check" class="w-3.5 h-3.5 stroke-[3]" x-show="answers[questions[current].id] === option.value" style="display:none"/>
                                     </div>
                                 </button>
-                            @endfor
+                            </template>
                         </div>
 
                         {{-- Feedback hint for blocked actions --}}
@@ -110,7 +110,7 @@
                         </div>
 
                         <div class="hidden sm:flex justify-center items-center gap-4 text-[11px] text-ink-faint">
-                            <span>Tip: Click 1 to 5 to rate quickly</span>
+                            <span>Tip: Press 1 to <span x-text="questions[current].options.length"></span> to answer quickly</span>
                             <span>&bull;</span>
                             <span>Use Next button or Enter to advance</span>
                         </div>

@@ -4,9 +4,163 @@ use App\Models\Answer;
 use App\Models\AssessmentResult;
 use App\Models\Question;
 use App\Models\User;
+use App\Services\AssessmentScoringService;
 use App\Services\OpenAIService;
+use Database\Seeders\QuestionSeeder;
 
 use function Pest\Laravel\actingAs;
+
+it('seeds the 150-item instrument with distinct interest and aptitude sections', function () {
+    $this->seed(QuestionSeeder::class);
+
+    $questions = Question::query()
+        ->where('instrument_version', Question::CURRENT_INSTRUMENT_VERSION)
+        ->orderBy('item_number')
+        ->get();
+
+    expect($questions)->toHaveCount(150)
+        ->and($questions->pluck('item_number')->all())->toBe(range(1, 150))
+        ->and($questions->where('section', 'interest'))->toHaveCount(90)
+        ->and($questions->where('section', 'verbal'))->toHaveCount(20)
+        ->and($questions->where('section', 'quantitative'))->toHaveCount(20)
+        ->and($questions->where('section', 'analytical'))->toHaveCount(20)
+        ->and($questions->where('riasec_type', 'R'))->toHaveCount(15)
+        ->and($questions->firstWhere('item_number', 1)->question_text)
+        ->toBe($questions->firstWhere('item_number', 3)->question_text)
+        ->and($questions->firstWhere('item_number', 93)->correct_answer)->toBe(1)
+        ->and($questions->firstWhere('item_number', 106)->correct_answer)->toBe(2)
+        ->and($questions->firstWhere('item_number', 109)->correct_answer)->toBe(1)
+        ->and($questions->firstWhere('item_number', 129)->correct_answer)->toBe(3)
+        ->and($questions->where('question_type', 'multiple_choice')->every(fn (Question $question) => count($question->choices) === 4))
+        ->toBeTrue();
+
+    $scores = app(AssessmentScoringService::class)->score(
+        $questions->map(fn (Question $question): array => [
+            'question' => $question,
+            'answer' => $question->question_type === 'likert' ? 4 : $question->correct_answer,
+        ])
+    );
+
+    expect($scores['interest']['R']['average'])->toBe(4.0)
+        ->and($scores['aptitude']['verbal']['correct'])->toBe(20)
+        ->and($scores['aptitude']['quantitative']['percentage'])->toBe(100.0)
+        ->and($scores['aptitude']['analytical']['total'])->toBe(20);
+});
+
+it('requires all 150 responses and stores versioned score profiles and individual attempt responses', function () {
+    $this->seed(QuestionSeeder::class);
+
+    $user = User::factory()->consented()->create([
+        'email_verified_at' => now(),
+        'user_type' => 'user',
+    ]);
+
+    $questions = Question::query()
+        ->where('instrument_version', Question::CURRENT_INSTRUMENT_VERSION)
+        ->orderBy('item_number')
+        ->get();
+
+    $startedAt = now()->subMinutes(5)->toDateTimeString();
+    $assessmentResponse = $this->actingAs($user)
+        ->withSession(['assessment_started_at' => $startedAt])
+        ->get(route('assessment.show'))
+        ->assertOk()
+        ->assertSee('Question')
+        ->assertSee('Strongly Dislike')
+        ->assertSee('Strongly Like')
+        ->assertSee('Select the best answer.')
+        ->assertSee('A business has three possible solutions');
+
+    $this->actingAs($user)->get(route('assessment.show'))
+        ->assertOk()
+        ->assertSessionHas('assessment_started_at', $startedAt);
+
+    expect(substr_count($assessmentResponse->getContent(), 'name="question_'))->toBe(150);
+
+    $this->app->instance(OpenAIService::class, new class extends OpenAIService
+    {
+        public function analyzeAssessmentProfile(array $scoreBreakdown): array
+        {
+            $matches = [
+                ['code' => 'BSIT', 'name' => 'Bachelor of Science in Information Technology', 'reason' => 'Strong technology interests.', 'evidence' => ['Investigative average: 4.5 / 5'], 'explore' => 'Compare the program curriculum.'],
+                ['code' => 'BSCS', 'name' => 'Bachelor of Science in Computer Science', 'reason' => 'Related interests.', 'evidence' => [], 'explore' => 'Review sample courses.'],
+                ['code' => 'BSAIS', 'name' => 'Bachelor of Science in Accounting Information System', 'reason' => 'Related interests.', 'evidence' => [], 'explore' => 'Ask about accounting subjects.'],
+                ['code' => 'BSTM', 'name' => 'Bachelor of Science in Tourism Management', 'reason' => 'Related interests.', 'evidence' => [], 'explore' => 'Explore tourism careers.'],
+                ['code' => 'BSHM', 'name' => 'Bachelor of Science in Hospitality Management', 'reason' => 'Related interests.', 'evidence' => [], 'explore' => 'Explore hospitality careers.'],
+            ];
+
+            return [
+                'recommended_program' => [
+                    'code' => 'BSIT',
+                    'name' => 'Bachelor of Science in Information Technology',
+                ],
+                'confidence' => 0,
+                'fit_level' => 'Exploratory AI match',
+                'reason' => 'Interest and aptitude scores are reported separately.',
+                'strengths' => ['Investigative interest is strongest in this profile.'],
+                'development_areas' => [],
+                'feedback' => 'Discuss this profile with a school counselor.',
+                'evidence' => [],
+                'next_steps' => ['Review the profile with a school counselor.'],
+                'program_matches' => $matches,
+                'alternative_programs' => [],
+                'source' => 'openai',
+                'disclaimer' => 'Exploratory guidance only. The student retains full choice.',
+            ];
+        }
+    });
+
+    $partialPayload = [
+        'question_'.$questions->first()->id => 4,
+    ];
+
+    $this->actingAs($user)->post(route('assessment.submit'), $partialPayload)
+        ->assertSessionHasErrors('question_'.$questions->last()->id);
+
+    $this->actingAs($user)->get(route('assessment.show'))
+        ->assertOk()
+        ->assertSee("We couldn't submit your assessment:", false)
+        ->assertSee('question '.$questions->last()->item_number.' field is required');
+
+    expect(AssessmentResult::query()->where('user_id', $user->id)->count())->toBe(0);
+
+    $payload = $questions->mapWithKeys(fn (Question $question): array => [
+        'question_'.$question->id => $question->question_type === 'likert'
+            ? 4
+            : $question->correct_answer,
+    ])->all();
+
+    $this->actingAs($user)->post(route('assessment.submit'), $payload)
+        ->assertRedirect(route('results.index'));
+
+    $result = AssessmentResult::query()->where('user_id', $user->id)->firstOrFail();
+
+    expect($result->instrument_version)->toBe(Question::CURRENT_INSTRUMENT_VERSION)
+        ->and($result->program_code)->toBe('BSIT')
+        ->and($result->score_breakdown['interest']['R']['items'])->toBe(15)
+        ->and($result->score_breakdown['aptitude']['verbal']['correct'])->toBe(20)
+        ->and($result->answers()->count())->toBe(150)
+        ->and($result->answers()->where('is_correct', true)->count())->toBe(60);
+
+    $this->actingAs($user)->post(route('assessment.submit'), $payload)
+        ->assertRedirect(route('results.index'));
+
+    $attempts = AssessmentResult::query()->where('user_id', $user->id)->get();
+
+    expect($attempts)->toHaveCount(2)
+        ->and($attempts->every(fn (AssessmentResult $attempt) => $attempt->answers()->count() === 150))
+        ->toBeTrue();
+
+    $this->actingAs($user)->get(route('results.index'))
+        ->assertOk()
+        ->assertSee('Career Interest and Aptitude Profile')
+        ->assertSee('Exploratory suggestions—not a placement decision')
+        ->assertSee('AI-generated program mapping')
+        ->assertSee('sessionStorage.removeItem')
+        ->assertSee('Programs to Explore')
+        ->assertSee('Your interests, goals, and decision come first')
+        ->assertSee('20 / 20');
+});
 
 it('renders the improved student dashboard for authenticated users', function () {
     $user = User::factory()->create([
@@ -28,6 +182,13 @@ it('requires data privacy consent before taking the assessment', function () {
         'email_verified_at' => now(),
         'user_type' => 'user',
     ]);
+
+    $this->actingAs($user)->get(route('assessment.consent'))
+        ->assertOk()
+        ->assertSee('90 career-interest responses')
+        ->assertSee('60 scholastic aptitude responses')
+        ->assertSee('OpenAI when selected')
+        ->assertSee('Authorized school administrators can see identifiable recent submissions');
 
     $this->actingAs($user)->get(route('assessment.show'))
         ->assertRedirect(route('assessment.consent'));
@@ -309,6 +470,15 @@ it('restricts assessment analytics to administrators', function () {
         'source' => 'openai',
         'completed_at' => now(),
     ]);
+    AssessmentResult::query()->create([
+        'user_id' => $student->id,
+        'program_code' => 'BSCS',
+        'program_name' => 'Bachelor of Science in Computer Science',
+        'confidence' => 0,
+        'source' => 'openai',
+        'instrument_version' => Question::CURRENT_INSTRUMENT_VERSION,
+        'completed_at' => now(),
+    ]);
 
     $this->actingAs($student)->get(route('admin.analytics'))
         ->assertForbidden();
@@ -317,9 +487,13 @@ it('restricts assessment analytics to administrators', function () {
         ->assertOk()
         ->assertSee('Assessment Analytics')
         ->assertSee('BSIT')
+        ->assertSee('BSCS')
+        ->assertSee('85.5%')
         ->assertSee($student->name);
 
     $this->actingAs($admin)->get(route('admin.analytics.programs'))
         ->assertOk()
-        ->assertJsonPath('programs.0.program_code', 'BSIT');
+        ->assertJsonCount(2, 'programs')
+        ->assertJsonPath('programs.0.program_code', 'BSIT')
+        ->assertJsonPath('programs.1.program_code', 'BSCS');
 });

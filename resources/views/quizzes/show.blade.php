@@ -73,8 +73,8 @@
                     <p class="mt-2 text-3xl font-headline font-bold text-primary-container">{{ $quiz->questions->where('type', 'mcq')->count() }}</p>
                 </div>
                 <div class="card p-5 border border-surface-low">
-                    <p class="text-xs font-semibold uppercase tracking-wide text-ink-faint">Identification</p>
-                    <p class="mt-2 text-3xl font-headline font-bold text-primary-container">{{ $quiz->questions->where('type', 'identification')->count() }}</p>
+                    <p class="text-xs font-semibold uppercase tracking-wide text-ink-faint">Flashcards</p>
+                    <p class="mt-2 text-3xl font-headline font-bold text-primary-container">{{ $quiz->flashcards->count() }}</p>
                 </div>
                 <div class="card p-5 border border-surface-low">
                     <p class="text-xs font-semibold uppercase tracking-wide text-ink-faint">AI Confidence</p>
@@ -82,19 +82,27 @@
                 </div>
             </div>
 
+            @if ($quiz->attempts->isEmpty())
+                <section class="card p-6 sm:p-8">
+                    <div class="max-w-3xl">
+                        <span class="rounded-full bg-accent/20 px-3 py-1 text-xs font-semibold text-accent-ink">Ready to take</span>
+                        <h2 class="mt-4 font-headline text-xl font-bold text-primary">Take the quiz before reviewing answers</h2>
+                        <p class="mt-2 text-sm leading-relaxed text-ink-muted">
+                            Complete an attempt to see the questions, correct answers, and explanations. Your score and feedback will be available as soon as you submit.
+                        </p>
+                    </div>
+
+                    <p class="mt-6 text-sm text-ink-muted">
+                        {{ $quiz->flashcards->count() }} flashcards are available in a separate, ungraded study mode.
+                    </p>
+                </section>
+            @else
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 pb-8">
                 <section class="lg:col-span-2 space-y-4">
-                    @unless ($quiz->attempts->isNotEmpty())
-                        <div class="rounded-xl border border-accent/30 bg-accent/10 px-4 py-3 text-sm text-accent-ink">
-                            Answer keys are hidden until you complete this quiz at least once.
-                        </div>
-                    @endunless
-
                     @foreach ($quiz->questions as $question)
                         <article class="card p-5">
                             <div class="flex flex-wrap items-center gap-2">
                                 <span class="rounded-full bg-surface px-3 py-1 text-xs font-semibold uppercase tracking-wide text-ink-muted">{{ $question->type === 'mcq' ? 'MCQ' : 'Identification' }}</span>
-                                <span class="rounded-full bg-accent/20 px-3 py-1 text-xs font-semibold text-accent-ink">{{ ucfirst($question->difficulty) }}</span>
                             </div>
                             <h3 class="mt-4 font-headline text-base font-bold text-ink">{{ $loop->iteration }}. {{ $question->question }}</h3>
 
@@ -103,17 +111,23 @@
                                     @foreach ($question->choices as $choice)
                                         <div @class([
                                             'rounded-xl border px-3 py-2 text-sm',
-                                            'border-emerald-300 bg-emerald-50 text-emerald-800' => $quiz->attempts->isNotEmpty() && $choice === $question->correct_answer,
-                                            'border-surface-low text-ink-muted' => $quiz->attempts->isEmpty() || $choice !== $question->correct_answer,
+                                            'border-emerald-300 bg-emerald-50 text-emerald-800' => $choice === $question->correct_answer,
+                                            'border-surface-low text-ink-muted' => $choice !== $question->correct_answer,
                                         ])>
                                             {{ $choice }}
                                         </div>
                                     @endforeach
                                 </div>
-                            @elseif ($quiz->attempts->isNotEmpty())
                                 <p class="mt-4 rounded-xl bg-surface px-3 py-2 text-sm text-ink-muted">
                                     Answer key: <span class="font-semibold text-primary">{{ $question->correct_answer }}</span>
                                 </p>
+                            @else
+                                <p class="mt-4 rounded-xl bg-surface px-3 py-2 text-sm text-ink-muted">
+                                    Answer key: <span class="font-semibold text-primary">{{ $question->correct_answer }}</span>
+                                </p>
+                            @endif
+                            @if ($question->explanation)
+                                <p class="mt-3 text-sm leading-relaxed text-ink-muted">{{ $question->explanation }}</p>
                             @endif
                         </article>
                     @endforeach
@@ -135,12 +149,16 @@
                     </section>
 
                     <section class="rounded-2xl bg-gradient-to-b from-primary to-primary-container p-5 text-white shadow-ambient">
-                        <h3 class="font-headline font-bold text-base">Ready for assessment</h3>
-                        <p class="mt-2 text-sm text-slate-200">Timer, pagination, MCQ checking, and semantic identification checking are enabled.</p>
-                        <a href="{{ route('quizzes.take', $quiz) }}" class="mt-5 inline-flex rounded-xl bg-accent hover:bg-accent-hover px-4 py-2 text-sm font-bold text-primary transition-all">Start Quiz</a>
+                        <h3 class="font-headline font-bold text-base">Review or retake</h3>
+                        <p class="mt-2 text-sm text-slate-200">Practice with flashcards or take the graded MCQ quiz.</p>
+                        @if ($quiz->flashcards->isNotEmpty())
+                            <a href="{{ route('quizzes.flashcards', $quiz) }}" class="mt-5 inline-flex rounded-xl border border-white/40 px-4 py-2 text-sm font-bold text-white transition hover:bg-white/10">Study Flashcards</a>
+                        @endif
+                        <a href="{{ route('quizzes.take', $quiz) }}" class="mt-5 inline-flex rounded-xl bg-accent hover:bg-accent-hover px-4 py-2 text-sm font-bold text-primary transition-all">Retake Quiz</a>
                     </section>
                 </aside>
             </div>
+            @endif
         @endif
     </div>
 

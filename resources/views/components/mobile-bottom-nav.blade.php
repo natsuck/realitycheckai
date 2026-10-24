@@ -46,7 +46,7 @@
             </a>
         @else
             <a href="{{ route('quizzes.index') }}"
-               class="flex flex-col items-center py-1 px-2.5 rounded-lg text-[10px] font-semibold transition-colors {{ request()->routeIs('quizzes.*') || request()->routeIs('quiz-attempts.*') || request()->routeIs('quiz-analytics.*') ? 'text-primary' : 'text-ink-faint' }}">
+               class="flex flex-col items-center py-1 px-2.5 rounded-lg text-[10px] font-semibold transition-colors {{ request()->routeIs('quizzes.*') || request()->routeIs('quiz-attempts.*') ? 'text-primary' : 'text-ink-faint' }}">
                 <x-icon name="file-text" class="w-5 h-5 mb-0.5 {{ request()->routeIs('quizzes.*') ? 'text-primary' : '' }}"/>
                 <span>{{ __('Quizzes') }}</span>
             </a>

@@ -11,7 +11,7 @@ flowchart TD
     P3(("3.0<br/>AI Recommendation<br/>Engine"))
     P4(("4.0<br/>Quiz<br/>Generation"))
     P5(("5.0<br/>Quiz Attempt<br/>and Grading"))
-    P6(("6.0<br/>Analytics<br/>Reporting"))
+    P6(("6.0<br/>Counselor Analytics"))
 
     D1[("D1 · users")]
     D2[("D2 · questions")]
@@ -45,14 +45,13 @@ flowchart TD
     P5 -- "per-answer results" --> D8
     P5 -- "grades, feedback" --> S
 
-    S -- "personal analytics query" --> P6
     C -- "aggregate analytics query" --> P6
     P6 -- "aggregates" --> D4
-    P6 -- "score trends" --> D7
     P6 -- "analytics dashboard" --> C
 ```
 
 **Processes:** (1.0) authentication, (2.0) assessment capture with reverse scoring,
 (3.0) AI recommendation with deterministic fallback, (4.0) quiz generation via the queue
-worker, (5.0) attempt grading, (6.0) analytics. The counselor is an admin `user_type`
-who additionally reads the aggregate reports.
+worker, (5.0) attempt grading, (6.0) counselor assessment analytics. The counselor is an
+admin `user_type` who reads aggregate assessment reports; students review their quiz results
+on each completed attempt.

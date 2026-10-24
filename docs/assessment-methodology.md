@@ -1,160 +1,98 @@
 # Assessment Methodology
 
-This document describes how Aguhon converts a student's self-report answers into an
-academic program recommendation. It is intended as supporting material for the thesis defense.
+This document describes the current 150-item Aguhon College Career Guidance Assessment and how
+the app stores and reports its results. It does not replace the psychometrician-approved
+administration and scoring protocol.
 
-## 1. Instrument Design
+## 1. Instrument and versioning
 
-The assessment consists of **26 Likert-scale items** (1 = Strongly disagree … 5 = Strongly
-agree) across **six categories**, seeded by `database/seeders/QuestionSeeder.php`:
+The current instrument version is `aguhon-150-v1`, seeded by
+`database/seeders/QuestionSeeder.php`. It contains:
 
-| Category | Items | Sample construct |
-|---|---|---|
-| Skills | 4 | Logical/analytical problem solving, communication, collaboration |
-| Interests | 4 | Technology, design, business, people-oriented work |
-| Personality | 5 | Independence, teamwork, detail orientation, adaptability |
-| Work style | 5 | Hands-on preference, planning, fast-paced environments |
-| Career values | 4 | Stability, compensation, work-life balance, growth |
-| Technical aptitude | 4 | Interest in computer systems, software, programming |
+| Section | Items | Scoring |
+|---|---:|---|
+| RIASEC career-interest inventory | 90 (15 per RIASEC scale) | Student rating from 1 (Strongly Dislike) to 5 (Strongly Like) |
+| Verbal reasoning and reading comprehension | 20 | Multiple choice, keyed correct/incorrect |
+| Quantitative reasoning | 20 | Multiple choice, keyed correct/incorrect |
+| Analytical and scientific reasoning | 20 | Multiple choice, keyed correct/incorrect |
 
-### Reverse-scored items
+The approved PDF's order is preserved using the question `item_number`. Each question stores its
+instrument version, section, item type, RIASEC scale when applicable, choices, and answer key.
+The legacy 26-item question bank is retained as unversioned historical content; it is not included
+in the current questionnaire.
 
-Three negatively-worded items are flagged `is_reverse = true` in the `questions` table:
+## 2. Scoring
 
-- "I avoid tasks involving technology." (technical)
-- "I dislike working in groups." (work_style)
-- "I find it difficult to adapt to sudden changes." (personality)
+`App\Services\AssessmentScoringService` enforces the expected total and section sizes before
+producing a score profile.
 
-Before scoring, their values are inverted (`6 − answer`) so that a **higher stored value always
-means more of the underlying trait**. The flag lives in the database — not in code — so items can
-be added or reworded without touching application logic.
+For each RIASEC scale:
 
-Item order is randomized on each presentation to reduce order bias; scoring uses canonical
-question IDs.
-
-## 2. Category Summary and Strongest Trait
-
-For each category the mean answer is computed and expressed as a percentage of the scale
-maximum:
-
-```
-percentage = (mean / 5) × 100
+```text
+scale average = sum of the 15 ratings / 15
+display percentage = (scale average / 5) × 100
 ```
 
-Levels: Very strong ≥ 84%, Strong ≥ 68%, Moderate ≥ 52%, Needs exploration below.
+For each aptitude section:
 
-The **strongest trait** is the category with the highest percentage; ties break on the number of
-backing items, then alphabetically. It is computed server-side in
-`AssessmentController::strongestTrait()` and persisted with every result.
-
-## 3. Response-Validity Checks
-
-Before trusting any recommendation, submissions are screened for careless responding
-(`AssessmentController::detectResponseFlags()`):
-
-| Flag | Condition | Rationale |
-|---|---|---|
-| `uniform_responses` | All 26 answers identical | Straight-lining; answers carry no discriminating information |
-| `near_uniform_responses` | One value covers ≥ 90% of answers | Effectively straight-lined |
-| `rapid_completion` | Completed in < 10 seconds | Implausible reading time for 26 items |
-
-Flagged results are still shown, but the student sees a "Response pattern notice" stating the
-recommendation may be less reliable, and counselors see a flag count in the analytics dashboard.
-Completion duration is measured between rendering the form and submission.
-
-## 4. AI Recommendation Pipeline
-
-1. Answers are serialized with question text, category, category label, numeric answer, and
-   scale label.
-2. `OllamaService::analyze()` prompts the local LLM (temperature 0.15) with a strict JSON
-   contract: recommended program, confidence, fit level, reason, strengths, development areas,
-   feedback, evidence, next steps, alternative programs.
-3. Output is defensively normalized (`normalizeRecommendation()`):
-   - program codes are uppercased and validated against the six-program catalog;
-     unknown codes trigger the deterministic scorer instead
-   - confidence values are clamped to 0–100
-   - list fields fall back to sensible defaults when missing or malformed
-   - markdown fences / trailing commas in model output are repaired before decoding
-4. Every result is tagged `source: ollama`; UI badges distinguish live AI output from fallback.
-
-**Confidence caveat:** the reported confidence is the LLM's *self-assessment*, a heuristic —
-not a calibrated probability. The UI states this on the results page.
-
-## 5. Deterministic Fallback Scorer
-
-When Ollama is unreachable or returns unusable output, `fallbackProgramCode()` scores five
-traits from the same answers and matches them against fixed program profiles.
-
-**Trait elicitation (per item):** keyword matching on question text assigns each item to up to
-five traits (analytical, technical, social, organizational, practical). Any item matching no
-keyword falls back to a stable per-category weight distribution
-(`categoryTraitDefaults()`) so rewording a question can never silently remove its weight.
-`values` items are excluded entirely — career-value preferences are not trait evidence.
-
-**Program profile matrix** (weights sum to 1.0 per program):
-
-| Program | analytical | technical | social | organizational | practical |
-|---|---|---|---|---|---|
-| BSCS | 0.40 | 0.35 | 0.05 | 0.10 | 0.10 |
-| BSIT | 0.20 | 0.35 | 0.05 | 0.10 | 0.30 |
-| BSAIS | 0.30 | 0.20 | 0.05 | 0.35 | 0.10 |
-| BSHM | 0.10 | 0.05 | 0.40 | 0.25 | 0.20 |
-| BSTM | 0.10 | 0.10 | 0.40 | 0.20 | 0.20 |
-| ACT | 0.20 | 0.30 | 0.10 | 0.10 | 0.30 |
-
-```
-program_score(p) = Σ_trait  trait_total(t) × weight(p, t)
-recommended      = argmax_p program_score(p)
+```text
+section score = number of correct responses out of 20
+section percentage = (correct responses / 20) × 100
 ```
 
-Fallback output carries `fit_level: Preliminary Fit`, `source: fallback`, and the triggering
-error for transparency.
+The RIASEC and aptitude results remain separate; the app does not combine them into a single
+overall score or compare them with a norm group. Responses are stored as selected, each aptitude
+response also records whether it matched the key, and each result stores its computed score
+breakdown.
 
-## 6. Results-Page Metrics: Aptitude Score and Program Matches
+The assessment requires all 150 responses. Every submission creates a distinct
+`assessment_results` record and associates that attempt's responses with it, preserving retake
+history instead of overwriting earlier answers.
 
-Two derived metrics are computed when rendering results; neither is persisted — they are
-derived on demand from stored data.
+## 3. Exploratory program matches and AI explanation
 
-**Aptitude score (`AssessmentController::computeAptitude()`)** is a weighted composite of the
-stored category-summary percentages:
+The supplied instrument defines item groupings and aptitude answers but does not provide an
+approved mapping from score profiles to BSAIS, BSIT, BSCS, BSTM, or BSHM. The app therefore
+generates **exploratory AI matches**, not a validated NCAE score-to-program mapping.
 
-```
-aptitude = Σ_category  weight(c) × percentage(c)
-weights: technical 0.30 · skills 0.25 · interests 0.20 · personality 0.15 · work_style 0.10
-```
+The AI receives the computed scores and the app's brief program descriptions. It ranks the five
+programs, explains possible fit using reported score evidence, and suggests ways to explore each
+option. RIASEC scores are the primary matching context; aptitude scores remain separate and are
+supporting context only. The AI is instructed not to calculate combined scores, invent weights,
+produce compatibility probabilities, infer eligibility, or claim psychometric validation. The
+service validates each returned program code against the five-program catalog and uses canonical
+program names. If the AI response is invalid or unavailable, the app shows the profile without
+inventing program matches.
 
-Career-value items are excluded (values describe preferences, not ability). Weights are
-renormalized over whichever categories are present, so partial submissions still produce a
-valid 0–99 score, and `null` when no scorable categories exist.
+The result page explicitly describes matches as exploratory, not school-validated, placement,
+admission, or a prediction of academic success. A student's interests, goals, and own choice take
+precedence, and counselor discussion is encouraged. Program descriptions are brief summaries and
+may not reflect the school's complete curriculum.
 
-**Program matches (`OllamaService::programMatches()`)** rank all six programs by the same
-deterministic trait scorer used by the fallback path. Compatibility percentages normalize each
-program's weighted score against its theoretical maximum:
+The AI's ranked output can be nondeterministic and should be evaluated with counselors and
+students before making claims about its usefulness. If the school or psychometrician later
+approves a score-to-program mapping, that is a separate, versioned method and must not be
+confused with these exploratory AI suggestions.
 
-```
-compatibility(p) = clamp( round( program_score(p) / (n_items × 5 × Σ weights(p)) × 100 ), 1, 99 )
-```
+## 4. Response flags
 
-When the AI recommendation passed validity screening it is pinned to the top of the match list
-(`is_top_match`), so students always see their official recommendation first, followed by the
-statistically nearest alternatives.
+The current flow flags a uniform or near-uniform pattern across the 90 RIASEC ratings. It does not
+apply that check to aptitude answers because their numeric values represent answer choices rather
+than an agreement scale. The former rapid-completion threshold was defined for the shorter
+legacy questionnaire and is not applied to the 150-item version without an approved timing rule.
 
-## 7. Data Persistence and Privacy
+## 5. Privacy and interpretation
 
-- Each submission inserts one `assessment_results` row: program, confidence, fit level, source,
-  strongest trait (+ %), validity flags, completion seconds, full AI payload JSON, and category
-  summary JSON. Retakes append history rather than overwrite.
-- Raw per-item answers remain upserted per user in `answers`.
-- Results pages read from the database, so recommendations survive session expiry.
-- Before any collection, students must accept the **RA 10173 (Data Privacy Act of 2012)**
-  privacy notice at `/assessment/consent`; acceptance is timestamped on the user record
-  (`users.privacy_consented_at`). Both the assessment page and its submit endpoint enforce it.
-
-## 8. Limitations
-
-- Self-report instrument: no ability or achievement measures are collected.
-- Small item counts per category limit internal-consistency reliability; results should be read
-  as directional guidance.
-- LLM recommendations are stochastic even at low temperature; the deterministic scorer provides
-  reproducibility when the AI path is unavailable, but AI/fallback agreement was not calibrated.
-- Confidence figures are uncalibrated model self-reports.
+- Students must accept the RA 10173 (Data Privacy Act of 2012) privacy notice before assessment
+  data is collected. The application stores account details, item responses, computed profiles,
+  suggestions, and assessment history; authorized school administrators can view identifiable
+  recent submissions.
+- For current-instrument AI guidance, the computed score profile and program descriptions are sent
+  to the configured AI provider (OpenAI when selected). Student names, email addresses, and
+  individual item responses are not included in that AI request. Provider processing is subject to
+  the provider's applicable terms and privacy practices.
+- Results are academic guidance, not a definitive enrollment, admission, or placement decision.
+- The item wording, answer key, and administration protocol are governed by the approved
+  psychometrician-validated instrument. Changes require a new instrument version and review.
+- Historical legacy results remain available and are distinguishable from the current version by
+  their `instrument_version`.

@@ -48,7 +48,10 @@ window.assessmentWizard = (config) => ({
                 return;
             }
 
-            if (['1', '2', '3', '4', '5'].includes(event.key)) {
+            if (
+                ['1', '2', '3', '4', '5'].includes(event.key)
+                && Number(event.key) <= (this.questions[this.current]?.options?.length ?? 0)
+            ) {
                 this.select(this.questions[this.current].id, Number(event.key));
             } else if (event.key === 'Enter' || event.key === 'ArrowRight') {
                 event.preventDefault();
@@ -152,13 +155,18 @@ window.assessmentWizard = (config) => ({
             return;
         }
 
-        this.submitting = true;
+        for (const question of this.questions) {
+            const input = this.$refs.form.elements.namedItem('question_'+question.id);
 
-        try {
-            sessionStorage.removeItem(this.storageKey);
-        } catch (error) {
-            // Storage unavailable (private mode); submission still proceeds.
+            if (!input || !this.answered(question.id)) {
+                this.flashHint('An answer could not be prepared for submission. Please review this item and try again.');
+                return;
+            }
+
+            input.value = String(this.answers[question.id]);
         }
+
+        this.submitting = true;
 
         this.$refs.form.submit();
     },

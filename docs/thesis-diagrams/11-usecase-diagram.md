@@ -14,7 +14,6 @@ flowchart LR
         UC6("Generate AI practice quizzes")
         UC7("Take quizzes with countdown timer")
         UC8("View graded attempts and AI explanations")
-        UC9("View personal quiz analytics")
         UC10("Manage own uploaded quizzes")
         UC11("Admin: view guidance counselor analytics")
         UC12("Manage profile, password, account")
@@ -28,7 +27,6 @@ flowchart LR
     S --- UC6
     S --- UC7
     S --- UC8
-    S --- UC9
     S --- UC10
     S --- UC12
     C --- UC11
